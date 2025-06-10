@@ -1,0 +1,130 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// User authentication models
+model User {
+  id                  String    @id @default(cuid())
+  name                String?
+  username            String?   @unique
+  email               String    @unique
+  password            String?
+  role                String    @default("USER")
+  saveTelemetryToCloud Boolean   @default(false)
+  emailVerified       DateTime?
+  image               String?
+  accounts            Account[]
+  sessions            Session[]
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?
+  access_token       String?
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Model for storing serial connection settings
+model SerialConnection {
+  id        Int      @id @default(autoincrement())
+  baudRate  Int      @default(9600)
+  dataBits  Int      @default(8)
+  stopBits  Int      @default(1)
+  parity    String   @default("none")
+  connected Boolean  @default(false)
+  lastData  String?  @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model for storing command history
+model CommandHistory {
+  id        Int      @id @default(autoincrement())
+  command   String
+  createdAt DateTime @default(now())
+}
+
+// Model for quick commands
+model QuickCommand {
+  id       Int    @id @default(autoincrement())
+  label    String
+  command  String
+  position Int    @default(0)
+}
+
+// Telemetry models
+model BatteryData {
+  id          Int      @id @default(autoincrement())
+  voltage     Float
+  percentage  Float
+  current     Float
+  status      String
+  timestamp   DateTime @default(now())
+}
+
+model TemperatureData {
+  id          Int      @id @default(autoincrement())
+  voltage     Float
+  temperature Float    @default(0.0) // Derived from voltage (temp = voltage * 100)
+  timestamp   DateTime @default(now())
+}
+
+model GNSSData {
+  id          Int      @id @default(autoincrement())
+  latitude    Float
+  longitude   Float
+  altitude    Float
+  hdop        Float
+  satellites  Int
+  fixType     Int
+  rawNMEA     String
+  timestamp   DateTime @default(now())
+}
+
+model GasData {
+  id          Int      @id @default(autoincrement())
+  sensorType  String   // CO, NO2, or SO2
+  sensorValue Float
+  timestamp   DateTime @default(now())
+}
