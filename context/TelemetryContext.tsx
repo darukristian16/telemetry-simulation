@@ -1,10 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { BatteryCompressor } from '../lib/compression/BatteryCompressor';
 import { GNSSCompressor } from '../lib/compression/GNSSCompressor';
 import { TemperatureCompressor } from '../lib/compression/TemperatureCompressor';
 import { GasSensorCompressor } from '../lib/compression/GasSensorCompressor';
+import { useSerialStore } from '../lib/store';
+
+
 
 // Battery data generator class that simulates real-time battery readings
 class BatteryDataGenerator {
@@ -520,9 +523,27 @@ const TelemetryContext = createContext<TelemetryContextType | undefined>(undefin
 
 // Create a provider component
 export function TelemetryProvider({ children }: { children: ReactNode }) {
-  const [telemetryData, setTelemetryData] = useState<TelemetryData>(defaultTelemetryData);
+  const [telemetryData, setTelemetryData] = useState<TelemetryData>({});
   const [isSimulating, setIsSimulating] = useState(false);
-  const [simulationSettings, setSimulationSettings] = useState(defaultSimulationSettings);
+  const [lastTransmittedTimestamp, setLastTransmittedTimestamp] = useState(0);
+  const [lastTransmittedSequence, setLastTransmittedSequence] = useState(0);
+  const sequenceCounterRef = useRef(0); // Use ref for immediate updates
+  const executionGuardRef = useRef<string | null>(null); // Prevent double execution
+  
+  // Simulation settings state
+  const [simulationSettings, setSimulationSettings] = useState({
+    latitude: '-33.8688',
+    longitude: '151.2093',
+    altitude: '100',
+    temperature: '25',
+    coLevel: '1.2',
+    no2Level: '100',
+    so2Level: '10',
+    voltage: '25',
+    current: '1.5',
+    batteryPercentage: '100',
+    batteryStatus: 'Discharging',
+  });
   const [compressionSettings, setCompressionSettings] = useState<CompressionSettings>(defaultCompressionSettings);
   const [simulationInterval, setSimulationInterval] = useState<NodeJS.Timeout | null>(null);
   const [startTime, setStartTime] = useState<number>(0);
@@ -541,7 +562,6 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
   
   // Auto-transmission state
   const [autoTransmissionInterval, setAutoTransmissionInterval] = useState<NodeJS.Timeout | null>(null);
-  const [lastTransmittedTimestamp, setLastTransmittedTimestamp] = useState(0);
 
   // Function to generate random fluctuations
   const addNoise = (value: number, magnitude: number = 0.05): number => {
@@ -549,84 +569,131 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     return value + noise;
   };
 
-  // Auto-transmission function
+  // Auto-transmission function (simplified and more reliable)
   const transmitTelemetryAutomatically = async (data: TelemetryData) => {
     if (typeof window === 'undefined') return;
     
     try {
-      const { useSerialStore } = require('@/lib/store');
       const { port } = useSerialStore.getState();
       
-      if (!port || !port.writable) {
-        console.warn('⚠️ Auto-transmission stopped: Port not writable');
-        stopSimulation(); // Stop simulation if transmission fails
+      // Enhanced port validation
+      if (!port) {
+        console.warn('⚠️ Auto-transmission stopped: No port available');
+        stopSimulation();
+        return;
+      }
+      
+      if (!port.writable) {
+        console.warn('⚠️ Auto-transmission stopped: Port not writable', {
+          readable: !!port.readable,
+          writable: !!port.writable
+        });
+        stopSimulation();
         return;
       }
       
       // Get current timestamp to avoid duplicate transmissions
       const currentTimestamp = data.timestamp || data.ts || 0;
-      if (currentTimestamp <= lastTransmittedTimestamp) return;
+      const currentSequence = (data as any).sequence || 0;
+      
+      if (currentTimestamp <= lastTransmittedTimestamp && currentSequence <= lastTransmittedSequence) {
+        console.log('⏭️ Skipping duplicate transmission - timestamp:', currentTimestamp, 'sequence:', currentSequence);
+        return;
+      }
       
       const jsonData = JSON.stringify(data) + '\n';
+      console.log('📡 Transmitting data:', jsonData.length, 'bytes');
       
-      const writer = port.writable.getWriter();
+      let writer = null;
       try {
+        writer = port.writable.getWriter();
         const encoder = new TextEncoder();
         const encodedData = encoder.encode(jsonData);
+        
         await writer.write(encodedData);
         
         setLastTransmittedTimestamp(currentTimestamp);
-        console.log('📡 Auto-transmitted telemetry:', {
-          timestamp: currentTimestamp,
-          size: jsonData.length
-        });
+        setLastTransmittedSequence(currentSequence);
+        console.log('✅ Transmission successful - timestamp:', currentTimestamp, 'sequence:', currentSequence);
         
       } finally {
-        try {
-          writer.releaseLock();
-        } catch (e) {
-          console.warn('Error releasing writer lock:', e);
+        if (writer) {
+          try {
+            writer.releaseLock();
+          } catch (lockError) {
+            console.warn('⚠️ Writer lock release error:', lockError);
+          }
         }
       }
       
-    } catch (error) {
-      console.error('❌ Auto-transmission error:', error);
-      // If transmission fails, stop simulation
+    } catch (error: any) {
+      console.error('❌ Auto-transmission failed:', error?.message || error);
+      
+      // Stop simulation and show error
       stopSimulation();
-      alert('Serial transmission failed. Simulation stopped.');
+      console.error('🚨 Serial transmission failed. Simulation stopped.');
+      
+      // Show alert after a brief delay to avoid blocking
+      setTimeout(() => {
+        alert('Serial transmission failed. Simulation stopped.');
+      }, 100);
     }
   };
 
   // Function to update telemetry data with realistic variations
   const updateTelemetryData = () => {
+    // Generate unique call ID to prevent double execution in React Strict Mode
+    const callId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
     setTelemetryData(prev => {
+      // Guard against double execution in React Strict Mode
+      if (executionGuardRef.current === callId) {
+        return prev; // Return previous data without changes
+      }
+      executionGuardRef.current = callId;
+      
+      // Generate consistent timestamp and sequence for this data update
+      const currentTimestamp = Date.now();
+      const currentSequence = sequenceCounterRef.current + 1;
+      
+      // Enhanced duplicate check using both timestamp and sequence
+      if (currentTimestamp <= lastTransmittedTimestamp && currentSequence <= lastTransmittedSequence) {
+        return prev; // Return previous data without changes
+      }
+      
       // Calculate flight time
-      const flightTime = (Date.now() - startTime) / 1000;
+      const flightTime = (currentTimestamp - startTime) / 1000;
       
       // Use GNSS generator for realistic GPS data
       const gnssData = gnssGenerator?.generateRawData() || {
-        latitude: prev.latitude || -33.8688,
-        longitude: prev.longitude || 151.2093,
-        altitude: prev.altitude || 100
+        latitude: prev.latitude || parseFloat(simulationSettings.latitude) || -33.8688,
+        longitude: prev.longitude || parseFloat(simulationSettings.longitude) || 151.2093,
+        altitude: prev.altitude || parseFloat(simulationSettings.altitude) || 100
       };
       
       // Use battery generator for realistic battery data
       const batteryData = batteryGenerator?.generateRawData() || {
-        voltage: prev.voltage || 25,
-        current: prev.current || 1.5,
-        percentage: prev.batteryPercentage || 100,
-        status: prev.batteryStatus || "Discharging"
+        voltage: prev.voltage || parseFloat(simulationSettings.voltage) || 25,
+        current: prev.current || parseFloat(simulationSettings.current) || 1.5,
+        percentage: prev.batteryPercentage || parseFloat(simulationSettings.batteryPercentage) || 100,
+        status: prev.batteryStatus || simulationSettings.batteryStatus || "Discharging"
       };
 
       // Use temperature generator for realistic temperature data
       const temperatureData = temperatureGenerator?.generateRawData() || {
-        temperature: prev.temperature || 25
+        temperature: prev.temperature || parseFloat(simulationSettings.temperature) || 25
       };
 
       // Use gas sensor generators for realistic gas sensor data
-      const coData = coGenerator?.generateRawData() || { sensorValue: prev.coLevel || 1.2 };
-      const no2Data = no2Generator?.generateRawData() || { sensorValue: prev.no2Level || 100 };
-      const so2Data = so2Generator?.generateRawData() || { sensorValue: prev.so2Level || 10 };
+      const coData = coGenerator?.generateRawData() || { 
+        sensorValue: prev.coLevel || parseFloat(simulationSettings.coLevel) || 1.2 
+      };
+      const no2Data = no2Generator?.generateRawData() || { 
+        sensorValue: prev.no2Level || parseFloat(simulationSettings.no2Level) || 100 
+      };
+      const so2Data = so2Generator?.generateRawData() || { 
+        sensorValue: prev.so2Level || parseFloat(simulationSettings.so2Level) || 10 
+      };
       
       // Check compression setting and create appropriate data structure
       if (compressionSettings.enabled) {
@@ -635,9 +702,17 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         let totalProcessingTime = 0;
         let compressorCount = 0;
         
+        // Ensure compressors are available - create on-demand if needed
+        const ensuredBatteryCompressor = batteryCompressor || new BatteryCompressor();
+        const ensuredGnssCompressor = gnssCompressor || new GNSSCompressor();
+        const ensuredTemperatureCompressor = temperatureCompressor || new TemperatureCompressor();
+        const ensuredCoCompressor = coCompressor || new GasSensorCompressor('CO');
+        const ensuredNo2Compressor = no2Compressor || new GasSensorCompressor('NO2');
+        const ensuredSo2Compressor = so2Compressor || new GasSensorCompressor('SO2');
+        
         // Compress battery data
         let batteryBuffer: any = Buffer.alloc(0);
-        if (batteryCompressor) {
+        if (ensuredBatteryCompressor) {
           const batteryRawData = {
             voltage: batteryData.voltage,
             current: batteryData.current,
@@ -645,7 +720,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
             status: batteryData.status
           };
           
-          const compressionResult = batteryCompressor.compressData(batteryRawData, compressionSettings.showMetrics);
+          const compressionResult = ensuredBatteryCompressor.compressData(batteryRawData, compressionSettings.showMetrics);
           batteryBuffer = compressionResult.buffer;
           
           if (compressionSettings.showMetrics) {
@@ -657,7 +732,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         
         // Compress GNSS data
         let gnssBuffer: any = Buffer.alloc(0);
-        if (gnssCompressor) {
+        if (ensuredGnssCompressor) {
           const gnssRawData = {
             nmea: (gnssData as any).nmea || '',
             latitude: gnssData.latitude,
@@ -667,7 +742,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
             satellites: (gnssData as any).satellites || 8
           };
           
-          const gnssCompressionResult = gnssCompressor.compressData(gnssRawData, compressionSettings.showMetrics);
+          const gnssCompressionResult = ensuredGnssCompressor.compressData(gnssRawData, compressionSettings.showMetrics);
           gnssBuffer = gnssCompressionResult.buffer;
           
           if (compressionSettings.showMetrics) {
@@ -679,13 +754,13 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         
         // Compress temperature data
         let temperatureBuffer: any = Buffer.alloc(0);
-        if (temperatureCompressor) {
+        if (ensuredTemperatureCompressor) {
           const temperatureRawData = {
             temperature: temperatureData.temperature,
             voltage: ('voltage' in temperatureData) ? temperatureData.voltage : temperatureData.temperature / 100
           };
           
-          const tempCompressionResult = temperatureCompressor.compressData(temperatureRawData, compressionSettings.showMetrics);
+          const tempCompressionResult = ensuredTemperatureCompressor.compressData(temperatureRawData, compressionSettings.showMetrics);
           temperatureBuffer = tempCompressionResult.buffer;
           
           if (compressionSettings.showMetrics) {
@@ -700,9 +775,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         let no2Buffer: any = Buffer.alloc(0);
         let so2Buffer: any = Buffer.alloc(0);
         
-        if (coCompressor) {
+        if (ensuredCoCompressor) {
           const coRawData = { sensorValue: coData.sensorValue };
-          const coCompressionResult = coCompressor.compressData(coRawData, compressionSettings.showMetrics);
+          const coCompressionResult = ensuredCoCompressor.compressData(coRawData, compressionSettings.showMetrics);
           coBuffer = coCompressionResult.buffer;
           
           if (compressionSettings.showMetrics) {
@@ -712,9 +787,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           }
         }
         
-        if (no2Compressor) {
+        if (ensuredNo2Compressor) {
           const no2RawData = { sensorValue: no2Data.sensorValue };
-          const no2CompressionResult = no2Compressor.compressData(no2RawData, compressionSettings.showMetrics);
+          const no2CompressionResult = ensuredNo2Compressor.compressData(no2RawData, compressionSettings.showMetrics);
           no2Buffer = no2CompressionResult.buffer;
           
           if (compressionSettings.showMetrics) {
@@ -724,9 +799,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           }
         }
         
-        if (so2Compressor) {
+        if (ensuredSo2Compressor) {
           const so2RawData = { sensorValue: so2Data.sensorValue };
-          const so2CompressionResult = so2Compressor.compressData(so2RawData, compressionSettings.showMetrics);
+          const so2CompressionResult = ensuredSo2Compressor.compressData(so2RawData, compressionSettings.showMetrics);
           so2Buffer = so2CompressionResult.buffer;
           
           if (compressionSettings.showMetrics) {
@@ -747,8 +822,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           batt: batteryBuffer.toString('base64'),
           
           // System data (unchanged but with shorter field names)
-          ts: Date.now(),
-          time: flightTime
+          ts: currentTimestamp,
+          time: flightTime,
+          sequence: currentSequence
         };
         
         // Calculate realistic compression metrics based on full JSON size
@@ -785,8 +861,11 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         if (compressionMetrics) {
           (compressedData as any).compressionMetrics = compressionMetrics;
         }
-        
-        // Auto-transmit compressed data
+                  
+          // Update sequence counter after successful data generation
+          sequenceCounterRef.current = currentSequence;
+          
+          // Auto-transmit compressed data
         transmitTelemetryAutomatically(compressedData);
         return compressedData;
         
@@ -811,14 +890,18 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           batteryStatus: batteryData.status,
           
           // System data
-          timestamp: Date.now(),
-          flightTime: flightTime
+          timestamp: currentTimestamp,
+          flightTime: flightTime,
+          sequence: currentSequence
           
           // No compression metrics
         };
-        
-        // Auto-transmit raw data
-        transmitTelemetryAutomatically(rawData);
+                  
+          // Update sequence counter after successful data generation
+          sequenceCounterRef.current = currentSequence;
+          
+          // Auto-transmit raw data with slight delay for uncompressed data
+        setTimeout(() => transmitTelemetryAutomatically(rawData), 50);
         return rawData;
       }
     });
@@ -849,13 +932,11 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       current: parseFloat(simulationSettings.current),
       status: simulationSettings.batteryStatus
     });
-    setBatteryGenerator(generator);
 
     // Initialize temperature generator with user's input values
     const tempGenerator = new LM35TemperatureGenerator({
       currentTemperature: parseFloat(simulationSettings.temperature)
     });
-    setTemperatureGenerator(tempGenerator);
 
     // Initialize GNSS generator with user's input values
     const gnssGen = new GNSSDataGenerator({
@@ -863,44 +944,51 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       currentLon: parseFloat(simulationSettings.longitude),
       currentAltitude: parseFloat(simulationSettings.altitude)
     });
-    setGnssGenerator(gnssGen);
 
     // Initialize gas sensor generators with user's input values
     const coGen = new GasSensorDataGenerator({
       currentBase: parseFloat(simulationSettings.coLevel)
     });
-    setCoGenerator(coGen);
 
     const no2Gen = new GasSensorDataGenerator({
       currentBase: parseFloat(simulationSettings.no2Level)
     });
-    setNo2Generator(no2Gen);
 
     const so2Gen = new GasSensorDataGenerator({
       currentBase: parseFloat(simulationSettings.so2Level)
     });
-    setSo2Generator(so2Gen);
 
     // Initialize compressors if compression is enabled
+    let batteryComp = null;
+    let gnssComp = null;
+    let tempComp = null;
+    let coComp = null;
+    let no2Comp = null;
+    let so2Comp = null;
+    
     if (compressionSettings.enabled) {
-      const batteryComp = new BatteryCompressor();
-      setBatteryCompressor(batteryComp);
-      
-      const gnssComp = new GNSSCompressor();
-      setGnssCompressor(gnssComp);
-      
-      const tempComp = new TemperatureCompressor();
-      setTemperatureCompressor(tempComp);
-      
-      const coComp = new GasSensorCompressor('CO');
-      setCoCompressor(coComp);
-      
-      const no2Comp = new GasSensorCompressor('NO2');
-      setNo2Compressor(no2Comp);
-      
-      const so2Comp = new GasSensorCompressor('SO2');
-      setSo2Compressor(so2Comp);
+      batteryComp = new BatteryCompressor();
+      gnssComp = new GNSSCompressor();
+      tempComp = new TemperatureCompressor();
+      coComp = new GasSensorCompressor('CO');
+      no2Comp = new GasSensorCompressor('NO2');
+      so2Comp = new GasSensorCompressor('SO2');
     }
+
+    
+    // Set all generators in state
+    setBatteryGenerator(generator);
+    setTemperatureGenerator(tempGenerator);
+    setGnssGenerator(gnssGen);
+    setCoGenerator(coGen);
+    setNo2Generator(no2Gen);
+    setSo2Generator(so2Gen);
+    setBatteryCompressor(batteryComp);
+    setGnssCompressor(gnssComp);
+    setTemperatureCompressor(tempComp);
+    setCoCompressor(coComp);
+    setNo2Compressor(no2Comp);
+    setSo2Compressor(so2Comp);
     
     // Initialize telemetry data with simulation settings
     setTelemetryData({
@@ -922,9 +1010,11 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     setStartTime(Date.now());
     setIsSimulating(true);
     
-    // Start interval to update data
-    const interval = setInterval(updateTelemetryData, 1000);
-    setSimulationInterval(interval);
+    // Use setTimeout to ensure state updates are applied before starting interval
+    setTimeout(() => {
+      const interval = setInterval(updateTelemetryData, 1000);
+      setSimulationInterval(interval);
+    }, 100); // Small delay to ensure React state updates are processed
   };
 
   // Stop simulation
@@ -941,15 +1031,16 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     }
     
     setIsSimulating(false);
-    console.log('🛑 Simulation and auto-transmission stopped');
   };
 
   // Reset simulation
   const resetSimulation = () => {
     stopSimulation();
     setSimulationSettings(defaultSimulationSettings);
-    setTelemetryData(defaultTelemetryData);
+    setTelemetryData({}); // Clear data instead of setting defaults
     setLastTransmittedTimestamp(0);
+    setLastTransmittedSequence(0);
+    sequenceCounterRef.current = 0;
     setBatteryGenerator(null);
     setTemperatureGenerator(null);
     setGnssGenerator(null);
