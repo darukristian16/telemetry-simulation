@@ -54,6 +54,9 @@ export function EnhancedTerminal() {
     { label: "Reset", command: "AT&F" },
   ]);
   
+  // Buffer for incomplete lines across chunks
+  const lineBufferRef = useRef('');
+  
   // Update device info when connection status changes
   useEffect(() => {
     setDeviceInfo({
@@ -360,22 +363,18 @@ export function EnhancedTerminal() {
       console.error('Port is not readable');
       return;
     }
-    
     // Check if stream is already locked
     if (port.readable.locked) {
       console.log('⚠️ Readable stream is already locked, cannot start reading');
       return;
     }
-    
     try {
       readLoopActiveRef.current = true;
-      
       while (port.readable && readLoopActiveRef.current) {
         let reader;
-        
         try {
           reader = port.readable.getReader();
-        readerRef.current = reader;
+          readerRef.current = reader;
         } catch (error: any) {
           if (error.message?.includes('locked')) {
             console.log('⚠️ Stream became locked while trying to get reader, stopping');
@@ -383,35 +382,28 @@ export function EnhancedTerminal() {
           }
           throw error;
         }
-        
         try {
           console.log('Starting read loop');
-          
           while (readLoopActiveRef.current) {
             const { value, done } = await reader.read();
-            
             if (done) {
               console.log('Reader signaled "done"');
               break;
             }
-            
             if (value) {
               // Decode the incoming data
               const decoder = new TextDecoder('utf-8', { fatal: false });
-              const text = decoder.decode(value, { stream: true });
-              
-              // Update the UI with received text, ensuring proper line breaks
-              setTerminalContent(prev => {
-                // Check if the previous content ends with a newline
-                const needsNewline = prev.length > 0 && 
-                                     !prev.endsWith('\n') && 
-                                     !prev.endsWith('\r\n') && 
-                                     text.trim().length > 0;
-                
-                // If needed, add a newline before appending new content
-                return prev + (needsNewline ? '\n' : '') + text;
-              });
-              
+              let text = decoder.decode(value, { stream: true });
+              // Add to buffer
+              lineBufferRef.current += text;
+              // Split on any newline (\r\n, \n, or \r)
+              const lines = lineBufferRef.current.split(/\r\n|\n|\r/);
+              // All except the last are complete lines
+              if (lines.length > 1) {
+                setTerminalContent(prev => prev + lines.slice(0, -1).join('\n') + '\n');
+              }
+              // The last element is the incomplete line (or empty if ended with newline)
+              lineBufferRef.current = lines[lines.length - 1];
               // Scroll to bottom without delay
               requestAnimationFrame(() => {
                 if (terminalRef.current && autoScroll) {
@@ -435,20 +427,21 @@ export function EnhancedTerminal() {
             readerRef.current = null;
           }
         }
-        
         if (!readLoopActiveRef.current) {
           console.log('Read loop terminated by user');
           break;
         }
-        
         // Short delay before retrying
         await new Promise(r => setTimeout(r, 500));
+      }
+      // After loop ends, flush any remaining buffer
+      if (lineBufferRef.current) {
+        setTerminalContent(prev => prev + lineBufferRef.current);
+        lineBufferRef.current = '';
       }
     } catch (err: any) {
       console.error('Fatal error in read process:', err);
       setError(`Fatal read error: ${err.message || String(err)}`);
-      
-      // Only clean up if we're not already disconnecting
       if (!disconnectingRef.current) {
         forceCleanup();
       }
