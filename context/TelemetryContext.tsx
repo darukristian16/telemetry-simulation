@@ -574,7 +574,10 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return;
     
     try {
-      const { port } = useSerialStore.getState();
+      // Get session-specific state instead of shared store
+      const { getSessionState } = require('@/lib/store');
+      const sessionState = getSessionState();
+      const port = sessionState.port;
       
       // Enhanced port validation
       if (!port) {
@@ -913,8 +916,10 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     
     // Check if serial connection is available
     if (typeof window !== 'undefined') {
-      const { useSerialStore } = require('@/lib/store');
-      const { isConnected, port } = useSerialStore.getState();
+      const { useSerialStore, getSessionState } = require('@/lib/store');
+      const { isConnected } = useSerialStore.getState();
+      const sessionState = getSessionState();
+      const port = sessionState.port;
       
       if (!isConnected || !port || (!port.readable && !port.writable)) {
         console.error('❌ Cannot start simulation: No serial connection available');

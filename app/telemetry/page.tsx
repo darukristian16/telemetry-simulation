@@ -166,10 +166,20 @@ export default function TelemetryPage() {
   // Handle compression settings changes
   const handleCompressionToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, checked } = e.target;
-    setCompressionSettings(prev => ({
-      ...prev,
-      [name]: checked
-    }));
+    
+    // If enabling compression, automatically enable showMetrics as well
+    if (name === 'enabled' && checked) {
+      setCompressionSettings(prev => ({
+        ...prev,
+        enabled: true,
+        showMetrics: true  // Force enable metrics when compression is enabled
+      }));
+    } else {
+      setCompressionSettings(prev => ({
+        ...prev,
+        [name]: checked
+      }));
+    }
   };
 
   return (
@@ -338,8 +348,10 @@ export default function TelemetryPage() {
                       id="showMetrics"
                       checked={compressionSettings.showMetrics}
                       onChange={handleCompressionToggle}
-                      disabled={isSimulating}
-                      description="Display compression ratio and performance statistics"
+                      disabled={isSimulating || compressionSettings.enabled}
+                      description={compressionSettings.enabled 
+                        ? "Automatically enabled when compression is on" 
+                        : "Display compression ratio and performance statistics"}
                     />
                   </div>
                 </section>

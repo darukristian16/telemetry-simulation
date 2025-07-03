@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useSerialStore, globals } from '@/lib/store';
+import { useSerialStore, getSessionState, requestSerialPort } from '@/lib/store';
 import { ConnectStatus } from './connect-status';
 
 export function EnhancedTerminal() {
@@ -72,24 +72,29 @@ export function EnhancedTerminal() {
     if (!hasInitializedRef.current) {
       console.log('🔍 Terminal component mounted, checking for existing connections...');
       
-      // Check if there's already a connected port
-      const storePort = useSerialStore.getState().port;
+      // Check session-specific state instead of shared store
+      const sessionState = getSessionState();
       const storeIsConnected = useSerialStore.getState().isConnected;
       
-      console.log('Store state:', {
-        hasPort: !!storePort,
+      console.log('Session state:', {
+        hasPort: !!sessionState.port,
         isConnected: storeIsConnected,
-        portReadable: !!storePort?.readable,
-        portWritable: !!storePort?.writable
+        portReadable: !!sessionState.port?.readable,
+        portWritable: !!sessionState.port?.writable
       });
       
-      if (storePort && (storePort.readable || storePort.writable)) {
-        console.log('📡 Found existing open port, recovering connection...');
+      if (sessionState.port && (sessionState.port.readable || sessionState.port.writable)) {
+        console.log('📡 Found existing open port in session state, recovering connection...');
+        
+        // Reset all refs to ensure clean state
+        readLoopActiveRef.current = false;
+        readerRef.current = null;
+        writerRef.current = null;
         
         // Update ALL state to match the actual connection
         setConnected(true);
         useSerialStore.setState({ 
-          port: storePort,
+          port: sessionState.port,
           isConnected: true 
         });
         
@@ -100,22 +105,18 @@ export function EnhancedTerminal() {
           status: 'Connected',
         });
       
-        // Start reading from the existing port if it's readable and not already reading
-        if (storePort.readable && !readLoopActiveRef.current) {
-          console.log('🔄 Checking if read loop is needed for recovered connection');
+        // Always restart the read loop for recovered connections
+        if (sessionState.port.readable) {
+          console.log('🔄 Starting read loop for recovered connection');
           
-          // Check if the readable stream is already locked
-          try {
-            if (storePort.readable.locked) {
-              console.log('⚠️ Stream is already locked by another reader, skipping read loop');
-            } else {
-              console.log('✅ Stream is available, starting read loop');
-              readFromPort(storePort);
+          // Small delay to ensure component is fully mounted
+          setTimeout(() => {
+            try {
+              readFromPort(sessionState.port);
+            } catch (error) {
+              console.log('❌ Error starting read loop for recovered connection:', error);
             }
-          } catch (error) {
-            console.log('❌ Error checking stream lock status:', error);
-            // Stream might be in an invalid state, skip reading
-          }
+          }, 100);
         }
         
         console.log('✅ Connection recovered successfully - UI should show Connected');
@@ -170,20 +171,21 @@ export function EnhancedTerminal() {
   // Periodic state synchronization - keep UI in sync with actual port state
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      const storePort = useSerialStore.getState().port;
+      const sessionState = getSessionState();
       const storeIsConnected = useSerialStore.getState().isConnected;
       
       // Check if our local state matches the actual port state
-      const actuallyConnected = storePort && (storePort.readable || storePort.writable);
+      const actuallyConnected = sessionState.port && (sessionState.port.readable || sessionState.port.writable);
       
       if (actuallyConnected && !storeIsConnected) {
         console.log('🔄 Syncing: Port is open but store shows disconnected, fixing...');
-        useSerialStore.setState({ isConnected: true });
+        useSerialStore.setState({ isConnected: true, port: sessionState.port });
         setConnected(true);
         setDeviceInfo(prev => ({ ...prev, status: 'Connected' }));
       } else if (!actuallyConnected && storeIsConnected) {
         console.log('🔄 Syncing: Port is closed but store shows connected, fixing...');
         useSerialStore.setState({ isConnected: false, port: null });
+        sessionState.port = null;
         setConnected(false);
         setDeviceInfo(prev => ({ ...prev, status: 'Disconnected' }));
       }
@@ -214,19 +216,19 @@ export function EnhancedTerminal() {
       setStatus('connecting');
       setError(null);
       
-      // Request a port from the user
-      if (!(navigator as any).serial) {
-        throw new Error('Web Serial API not supported in this browser');
-      }
-      
-      const port = await (navigator as any).serial.requestPort();
+      // Request a port from the user with timeout to prevent blocking
+      const port = await requestSerialPort();
       console.log('Port selected by user');
+      
+      // Get session state for this user
+      const sessionState = getSessionState();
       
       // Check if port is already open - if so, just use it instead of trying to close
       if (port.readable || port.writable) {
         console.log('Port is already open, using existing connection');
         
-        // Store port in global state
+        // Store port in both session state and store
+        sessionState.port = port;
         useSerialStore.setState({ port, isConnected: true });
         setConnected(true);
         
@@ -248,7 +250,8 @@ export function EnhancedTerminal() {
       
       console.log(`Serial port opened at ${baudRate} baud`);
       
-      // Store port in global state
+      // Store port in both session state and store
+      sessionState.port = port;
       useSerialStore.setState({ port, isConnected: true });
       setConnected(true);
       
@@ -316,7 +319,8 @@ export function EnhancedTerminal() {
       }
       
       // Close port if available
-      const port = useSerialStore.getState().port;
+      const sessionState = getSessionState();
+      const port = sessionState.port;
       if (port) {
         try {
           await Promise.race([
@@ -333,6 +337,7 @@ export function EnhancedTerminal() {
       clearTimeout(timeoutId);
       
       // Update state
+      sessionState.port = null;
       setConnected(false);
       useSerialStore.setState({ port: null, isConnected: false });
       
@@ -394,16 +399,18 @@ export function EnhancedTerminal() {
               // Decode the incoming data
               const decoder = new TextDecoder('utf-8', { fatal: false });
               let text = decoder.decode(value, { stream: true });
-              // Add to buffer
+              
+              // Display data immediately for real-time feedback
+              setTerminalContent(prev => prev + text);
+              
+              // Also maintain line buffer for proper line handling (if needed for other features)
               lineBufferRef.current += text;
-              // Split on any newline (\r\n, \n, or \r)
-              const lines = lineBufferRef.current.split(/\r\n|\n|\r/);
-              // All except the last are complete lines
-              if (lines.length > 1) {
-                setTerminalContent(prev => prev + lines.slice(0, -1).join('\n') + '\n');
+              
+              // Clean up the line buffer periodically to prevent memory issues
+              if (lineBufferRef.current.length > 10000) {
+                lineBufferRef.current = lineBufferRef.current.slice(-5000);
               }
-              // The last element is the incomplete line (or empty if ended with newline)
-              lineBufferRef.current = lines[lines.length - 1];
+              
               // Scroll to bottom without delay
               requestAnimationFrame(() => {
                 if (terminalRef.current && autoScroll) {
@@ -434,11 +441,8 @@ export function EnhancedTerminal() {
         // Short delay before retrying
         await new Promise(r => setTimeout(r, 500));
       }
-      // After loop ends, flush any remaining buffer
-      if (lineBufferRef.current) {
-        setTerminalContent(prev => prev + lineBufferRef.current);
-        lineBufferRef.current = '';
-      }
+      // Clear the line buffer when connection ends (data is already displayed)
+      lineBufferRef.current = '';
     } catch (err: any) {
       console.error('Fatal error in read process:', err);
       setError(`Fatal read error: ${err.message || String(err)}`);
@@ -452,7 +456,8 @@ export function EnhancedTerminal() {
   const sendCharacter = async (char: string) => {
     if (!isConnected || status !== 'idle') return;
     
-    const port = useSerialStore.getState().port;
+    const sessionState = getSessionState();
+    const port = sessionState.port;
     if (!port || !port.writable) {
       setError('Cannot write to port: port is not writable');
       return;
@@ -518,7 +523,8 @@ export function EnhancedTerminal() {
   const sendFullCommand = async (command: string) => {
     if (!isConnected || status !== 'idle') return;
     
-    const port = useSerialStore.getState().port;
+    const sessionState = getSessionState();
+    const port = sessionState.port;
     if (!port || !port.writable) {
       setError('Cannot write to port: port is not writable');
       return;

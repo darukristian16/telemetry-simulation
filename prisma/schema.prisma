@@ -26,6 +26,8 @@ model User {
   image               String?
   accounts            Account[]
   sessions            Session[]
+  serialConnections   SerialConnection[]
+  commandHistory      CommandHistory[]
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }
@@ -68,6 +70,7 @@ model VerificationToken {
 // Model for storing serial connection settings
 model SerialConnection {
   id        Int      @id @default(autoincrement())
+  userId    String?  // Associate connection with user
   baudRate  Int      @default(9600)
   dataBits  Int      @default(8)
   stopBits  Int      @default(1)
@@ -76,13 +79,22 @@ model SerialConnection {
   lastData  String?  @default("")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  // Add relation to User (optional for backward compatibility)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Add unique constraint for user connections
+  @@unique([userId])
 }
 
 // Model for storing command history
 model CommandHistory {
   id        Int      @id @default(autoincrement())
+  userId    String?  // Associate with user
   command   String
   createdAt DateTime @default(now())
+  
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Model for quick commands

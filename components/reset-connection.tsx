@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from 'react';
-import { useSerialStore, globals } from '@/lib/store';
+import { useSerialStore, getSessionState } from '@/lib/store';
 
 /**
  * This component is used to force reset the connection state on each page load.

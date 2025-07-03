@@ -5,15 +5,17 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useSerialStore } from "@/lib/store"
+import { useSerialStore, getSessionState } from "@/lib/store"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RefreshCcw, Save, FileJson, Cpu, Network, Radio, Shield } from "lucide-react"
 
 export function SerialConfiguration() {
-  const { isConnected, port } = useSerialStore();
+  const { isConnected } = useSerialStore();
   
   // Write function using the same approach as EnhancedTerminal
   const write = async (command: string) => {
+    const sessionState = getSessionState();
+    const port = sessionState.port;
     if (!port || !port.writable) {
       console.error('Port not available for writing');
       return;

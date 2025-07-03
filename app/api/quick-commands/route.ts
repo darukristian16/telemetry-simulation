@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
 
+// Helper function to check authentication
+async function isAuthenticated(request?: NextRequest) {
+  const session = await getServerSession(authOptions);
+  return !!session?.user;
+}
+
 // GET /api/quick-commands
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    if (!await isAuthenticated(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const quickCommands = await prisma.quickCommand.findMany({
       orderBy: {
         position: 'asc',
@@ -20,21 +32,26 @@ export async function GET() {
 // POST /api/quick-commands
 export async function POST(request: NextRequest) {
   try {
-    const { label, command, position } = await request.json();
+    if (!await isAuthenticated(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { label, command, position } = body;
 
     if (!label || !command) {
       return NextResponse.json({ error: 'Label and command are required' }, { status: 400 });
     }
 
-    const newQuickCommand = await prisma.quickCommand.create({
+    const quickCommand = await prisma.quickCommand.create({
       data: {
-        label,
-        command,
+        label: label.trim(),
+        command: command.trim(),
         position: position || 0,
       },
     });
 
-    return NextResponse.json(newQuickCommand);
+    return NextResponse.json(quickCommand);
   } catch (error) {
     console.error('Error creating quick command:', error);
     return NextResponse.json({ error: 'Failed to create quick command' }, { status: 500 });
@@ -44,44 +61,49 @@ export async function POST(request: NextRequest) {
 // PUT /api/quick-commands
 export async function PUT(request: NextRequest) {
   try {
-    const { id, label, command, position } = await request.json();
-
-    if (!id) {
-      return NextResponse.json({ error: 'Command ID is required' }, { status: 400 });
+    if (!await isAuthenticated(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const updatedQuickCommand = await prisma.quickCommand.update({
-      where: {
-        id: id,
-      },
+    const body = await request.json();
+    const { id, label, command, position } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    }
+
+    const quickCommand = await prisma.quickCommand.update({
+      where: { id },
       data: {
-        label: label,
-        command: command,
-        position: position,
+        ...(label && { label: label.trim() }),
+        ...(command && { command: command.trim() }),
+        ...(position !== undefined && { position }),
       },
     });
 
-    return NextResponse.json(updatedQuickCommand);
+    return NextResponse.json(quickCommand);
   } catch (error) {
     console.error('Error updating quick command:', error);
     return NextResponse.json({ error: 'Failed to update quick command' }, { status: 500 });
   }
 }
 
-// DELETE /api/quick-commands/:id
+// DELETE /api/quick-commands
 export async function DELETE(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const id = parseInt(url.searchParams.get('id') || '');
+    if (!await isAuthenticated(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json({ error: 'Command ID is required' }, { status: 400 });
+      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
     }
 
     await prisma.quickCommand.delete({
-      where: {
-        id: id,
-      },
+      where: { id: parseInt(id) },
     });
 
     return NextResponse.json({ message: 'Quick command deleted' });

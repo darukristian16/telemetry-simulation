@@ -1,25 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
 
+// Helper function to get user ID from session
+async function getUserId(request?: NextRequest) {
+  const session = await getServerSession(authOptions);
+  
+  if (!session?.user) {
+    return null;
+  }
+  
+  // Get user ID from database to ensure it exists
+  const user = await prisma.user.findUnique({
+    where: { email: session.user.email! },
+    select: { id: true }
+  });
+  
+  return user?.id || null;
+}
+
 // GET /api/serial
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // Get the most recent serial connection
-    const serialConnection = await prisma.serialConnection.findFirst({
-      orderBy: {
-        updatedAt: 'desc',
+    const userId = await getUserId(request);
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get the user's serial connection
+    const serialConnection = await prisma.serialConnection.findUnique({
+      where: {
+        userId: userId,
       },
     });
 
-    // Get the command history (latest 50)
+    // Get the user's command history (latest 50)
     const commandHistory = await prisma.commandHistory.findMany({
+      where: {
+        userId: userId,
+      },
       orderBy: {
         createdAt: 'desc',
       },
       take: 50,
     });
 
-    // Get the quick commands, ordered by position
+    // Get the quick commands (these are global for now)
     const quickCommands = await prisma.quickCommand.findMany({
       orderBy: {
         position: 'asc',
@@ -40,13 +68,19 @@ export async function GET() {
 // POST /api/serial
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId(request);
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
     const { connected, baudRate, dataBits, stopBits, parity, lastData } = body;
 
-    // Update or create serial connection
+    // Update or create user-specific serial connection
     const serialConnection = await prisma.serialConnection.upsert({
       where: {
-        id: 1, // We'll always use ID 1 for simplicity
+        userId: userId,
       },
       update: {
         baudRate: baudRate || 9600,
@@ -57,7 +91,7 @@ export async function POST(request: NextRequest) {
         lastData: lastData !== undefined ? lastData : '',
       },
       create: {
-        id: 1,
+        userId: userId,
         baudRate: baudRate || 9600,
         dataBits: dataBits || 8,
         stopBits: stopBits || 1,
@@ -75,10 +109,19 @@ export async function POST(request: NextRequest) {
 }
 
 // DELETE /api/serial
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   try {
-    // Reset serial connection
+    const userId = await getUserId(request);
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Reset user's serial connection
     await prisma.serialConnection.updateMany({
+      where: {
+        userId: userId,
+      },
       data: {
         connected: false,
         lastData: '',

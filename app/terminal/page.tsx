@@ -8,7 +8,7 @@ import { SerialTelemetryBridge } from "@/components/SerialTelemetryBridge"
 import { TerminalApiBridge } from "@/components/TerminalApiBridge"
 import { Button } from "@/components/ui/button"
 import { Play, Square } from "lucide-react"
-import { useSerialStore } from "@/lib/store"
+import { useSerialStore, getSessionState } from "@/lib/store"
 import {
   FullPageContent,
   SidebarProvider,
@@ -16,7 +16,7 @@ import {
 
 export default function Page() {
   const { isSimulating, startSimulation, stopSimulation, telemetryData } = useTelemetry();
-  const { isConnected: terminalConnected, port } = useSerialStore();
+  const { isConnected: terminalConnected } = useSerialStore();
   
 
   const sendTelemetryData = async () => {
@@ -25,6 +25,8 @@ export default function Page() {
       return;
     }
     
+    const sessionState = getSessionState();
+    const port = sessionState.port;
     if (!port || !port.writable) {
       alert('Serial port not available or not writable. Please connect first.');
       return;
@@ -59,44 +61,6 @@ export default function Page() {
           <div className="flex flex-1 flex-col space-y-4">
             <div className="flex-1">
               <EnhancedTerminal />
-            </div>
-            
-            {/* Control Panel - simulation and serial transmission */}
-            <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
-              <h3 className="text-lg font-semibold text-slate-200 mb-4">Control Panel</h3>
-
-                <div className="flex items-center space-x-8 flex-wrap gap-4">
-                {/* Simulation Control */}
-                <div className="flex items-center space-x-4">
-                  <Button
-                    onClick={isSimulating ? stopSimulation : startSimulation}
-                    disabled={!isSimulating && (!terminalConnected || !port || (!port.readable && !port.writable))}
-                    variant={isSimulating ? "destructive" : "default"}
-                    className="min-w-32"
-                  >
-                    {isSimulating ? (
-                      <>
-                        <Square className="mr-2 h-4 w-4" />
-                        Stop Simulation
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Start Simulation
-                      </>
-                    )}
-                  </Button>
-                  
-                  <div className="text-sm text-slate-400">
-                    Simulation: <span className={isSimulating ? "text-green-400" : "text-slate-400"}>
-                      {isSimulating ? "Running" : "Stopped"}
-                    </span>
-                  </div>
-                </div>
-
-                  {/* API Bridge */}
-                  <TerminalApiBridge apiEndpoint="/api/telemetry" />
-              </div>
             </div>
           </div>
         </div>

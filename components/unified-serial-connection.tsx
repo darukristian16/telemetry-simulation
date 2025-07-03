@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useSerialStore } from '@/lib/store';
+import { useSerialStore, getSessionState, requestSerialPort } from '@/lib/store';
 import { Wifi } from 'lucide-react';
 
 export function UnifiedSerialConnection() {
@@ -34,22 +34,22 @@ export function UnifiedSerialConnection() {
     if (!hasInitializedRef.current) {
       console.log('🔍 UnifiedSerialConnection mounted, checking for existing connections...');
       
-      const storePort = useSerialStore.getState().port;
+      const sessionState = getSessionState();
       const storeIsConnected = useSerialStore.getState().isConnected;
       
-      console.log('Store state:', {
-        hasPort: !!storePort,
+      console.log('Session state:', {
+        hasPort: !!sessionState.port,
         isConnected: storeIsConnected,
-        portReadable: !!storePort?.readable,
-        portWritable: !!storePort?.writable
+        portReadable: !!sessionState.port?.readable,
+        portWritable: !!sessionState.port?.writable
       });
       
-      if (storePort && (storePort.readable || storePort.writable)) {
+      if (sessionState.port && (sessionState.port.readable || sessionState.port.writable)) {
         console.log('📡 Found existing open port, recovering connection...');
         
         setConnected(true);
         useSerialStore.setState({ 
-          port: storePort,
+          port: sessionState.port,
           isConnected: true 
         });
         
@@ -93,18 +93,19 @@ export function UnifiedSerialConnection() {
   // Periodic state synchronization
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      const storePort = useSerialStore.getState().port;
+      const sessionState = getSessionState();
       const storeIsConnected = useSerialStore.getState().isConnected;
       
-      const actuallyConnected = storePort && (storePort.readable || storePort.writable);
+      const actuallyConnected = sessionState.port && (sessionState.port.readable || sessionState.port.writable);
       
       if (actuallyConnected && !storeIsConnected) {
         console.log('🔄 Syncing: Port is open but store shows disconnected, fixing...');
-        useSerialStore.setState({ isConnected: true });
+        useSerialStore.setState({ isConnected: true, port: sessionState.port });
         setConnected(true);
       } else if (!actuallyConnected && storeIsConnected) {
         console.log('🔄 Syncing: Port is closed but store shows connected, fixing...');
         useSerialStore.setState({ isConnected: false, port: null });
+        sessionState.port = null;
         setConnected(false);
       }
     }, 2000);
@@ -194,17 +195,17 @@ export function UnifiedSerialConnection() {
       setStatus('connecting');
       setError(null);
       
-      if (!(navigator as any).serial) {
-        throw new Error('Web Serial API not supported in this browser');
-      }
-      
-      const port = await (navigator as any).serial.requestPort();
+      const port = await requestSerialPort();
       console.log('Port selected by user');
+      
+      // Get session state for this user
+      const sessionState = getSessionState();
       
       // Check if port is already open
       if (port.readable || port.writable) {
         console.log('Port is already open, using existing connection');
         
+        sessionState.port = port;
         useSerialStore.setState({ port, isConnected: true });
         setConnected(true);
         
@@ -228,6 +229,7 @@ export function UnifiedSerialConnection() {
       
       console.log(`Serial port opened at ${baudRate} baud`);
       
+      sessionState.port = port;
       useSerialStore.setState({ port, isConnected: true });
       setConnected(true);
       
@@ -278,7 +280,8 @@ export function UnifiedSerialConnection() {
         writerRef.current = null;
       }
       
-      const port = useSerialStore.getState().port;
+      const sessionState = getSessionState();
+      const port = sessionState.port;
       if (port) {
         try {
           await Promise.race([
@@ -291,6 +294,7 @@ export function UnifiedSerialConnection() {
         }
       }
       
+      sessionState.port = null;
       setConnected(false);
       useSerialStore.setState({ port: null, isConnected: false });
       

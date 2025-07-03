@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSerialStore, globals } from '@/lib/store';
+import { useSerialStore, getSessionState } from '@/lib/store';
 
 export interface SerialData {
   baudRate: number;
@@ -38,10 +38,11 @@ export function useSerialData() {
       if (isConnected) {
         setConnected(false);
       }
-      // Reset global references
-      globals.port = null;
-      globals.reader = null;
-      globals.writer = null;
+      // Reset session-specific references
+      const sessionState = getSessionState();
+      sessionState.port = null;
+      sessionState.reader = null;
+      sessionState.writer = null;
       
       preventAutoConnectRef.current = false;
       return;
@@ -50,7 +51,8 @@ export function useSerialData() {
     // Original logic - only run if we've explicitly opted out of prevention
     // If we have a port reference but our state doesn't show connected,
     // update the state to match reality
-    if (!preventAutoConnectRef.current && globals.port && !isConnected) {
+    const sessionState = getSessionState();
+    if (!preventAutoConnectRef.current && sessionState.port && !isConnected) {
       console.log('Active port found, updating connection state');
       setConnected(true);
     }
@@ -81,7 +83,8 @@ export function useSerialData() {
           
           if (data.serialConnection.connected !== undefined) {
             // Only update our connected state if we don't have an active port reference
-            if (!globals.port) {
+            const sessionState = getSessionState();
+            if (!sessionState.port) {
               setConnected(data.serialConnection.connected);
             } else {
               // If we have an active port but DB says not connected, update DB
