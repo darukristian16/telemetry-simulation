@@ -23,7 +23,6 @@ export interface ProcessedTelemetryData {
   
   // System Data
   timestamp: number;
-  signalStrength: number;
   flightTime: number;
   
   // Processing metadata
@@ -63,7 +62,6 @@ const defaultProcessedData: ProcessedTelemetryData = {
   batteryPercentage: 100,
   batteryStatus: "Discharging",
   timestamp: Date.now(),
-  signalStrength: -65,
   flightTime: 0,
   dataSource: 'raw'
 };

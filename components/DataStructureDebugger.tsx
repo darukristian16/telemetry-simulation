@@ -142,9 +142,7 @@ export function DataStructureDebugger() {
               <div className="p-2 bg-gray-50 rounded border-l-4 border-gray-400">
                 <div className="font-medium text-gray-800">System</div>
                 <div className="text-gray-600 space-y-1">
-                  <div>Signal: {telemetryData.signalStrength}dBm</div>
-                  <div>Flight: {telemetryData.flightTime.toFixed(0)}s</div>
-                  <div>Time: {new Date(telemetryData.timestamp).toLocaleTimeString()}</div>
+                  <div>Time: {new Date(telemetryData.timestamp || Date.now()).toLocaleTimeString()}</div>
                 </div>
               </div>
             </div>

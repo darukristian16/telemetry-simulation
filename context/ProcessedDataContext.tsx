@@ -25,7 +25,6 @@ export interface ProcessedTelemetryData {
   
   // System Data
   timestamp?: number;
-  signalStrength?: number;
   flightTime?: number;
   
   // Processing metadata

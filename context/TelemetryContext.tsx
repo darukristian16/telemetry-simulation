@@ -400,12 +400,8 @@ export interface CompressionSettings {
 
 // Define the telemetry data structure (conditional based on compression setting)
 export interface TelemetryData {
-  // GPS Data (conditional)
-  latitude?: number;          // Only when compression disabled
-  longitude?: number;         // Only when compression disabled
-  altitude?: number;          // Only when compression disabled
-  gnssBuffer?: any;        // Only when compression enabled (Buffer) - legacy
-  gnss?: string;           // Only when compression enabled (Base64)
+  // GNSS Data (always present as NMEA string or compressed)
+  gnss?: string;           // NMEA string when raw, Base64 compressed when compression enabled
   
   // Sensor Data (conditional)
   temperature?: number;       // Only when compression disabled
@@ -432,9 +428,7 @@ export interface TelemetryData {
   
   // System Data (always present - but field names change with compression)
   timestamp?: number;      // Only when compression disabled
-  flightTime?: number;     // Only when compression disabled (in seconds)
   ts?: number;             // Only when compression enabled (timestamp)
-  time?: number;           // Only when compression enabled (flight time)
   
   // Compression Data (optional - only populated when compression is enabled and metrics are shown)
   compressionMetrics?: {
@@ -484,9 +478,7 @@ interface TelemetryContextType {
 
 // Default values
 const defaultTelemetryData: TelemetryData = {
-  latitude: -33.8688,
-  longitude: 151.2093,
-  altitude: 100,
+  gnss: "$GPGGA,000000,3352.128,S,15112.558,E,1,8,0.9,100.0,M,,M,,*5C",
   temperature: 25,
   coLevel: 1.2,
   no2Level: 100,
@@ -495,8 +487,7 @@ const defaultTelemetryData: TelemetryData = {
   current: 1.5,
   batteryPercentage: 100,
   batteryStatus: "Discharging",
-  timestamp: Date.now(),
-  flightTime: 0
+  timestamp: Date.now()
 };
 
 const defaultSimulationSettings = {
@@ -527,7 +518,6 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
   const [isSimulating, setIsSimulating] = useState(false);
   const [lastTransmittedTimestamp, setLastTransmittedTimestamp] = useState(0);
   const [lastTransmittedSequence, setLastTransmittedSequence] = useState(0);
-  const sequenceCounterRef = useRef(0); // Use ref for immediate updates
   const executionGuardRef = useRef<string | null>(null); // Prevent double execution
   
   // Simulation settings state
@@ -597,10 +587,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       
       // Get current timestamp to avoid duplicate transmissions
       const currentTimestamp = data.timestamp || data.ts || 0;
-      const currentSequence = (data as any).sequence || 0;
       
-      if (currentTimestamp <= lastTransmittedTimestamp && currentSequence <= lastTransmittedSequence) {
-        console.log('⏭️ Skipping duplicate transmission - timestamp:', currentTimestamp, 'sequence:', currentSequence);
+      if (currentTimestamp <= lastTransmittedTimestamp) {
+        console.log('⏭️ Skipping duplicate transmission - timestamp:', currentTimestamp);
         return;
       }
       
@@ -616,8 +605,8 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         await writer.write(encodedData);
         
         setLastTransmittedTimestamp(currentTimestamp);
-        setLastTransmittedSequence(currentSequence);
-        console.log('✅ Transmission successful - timestamp:', currentTimestamp, 'sequence:', currentSequence);
+        setLastTransmittedSequence(0); // Reset sequence tracking
+        console.log('✅ Transmission successful - timestamp:', currentTimestamp);
         
       } finally {
         if (writer) {
@@ -655,12 +644,11 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       }
       executionGuardRef.current = callId;
       
-      // Generate consistent timestamp and sequence for this data update
+      // Generate consistent timestamp for this data update
       const currentTimestamp = Date.now();
-      const currentSequence = sequenceCounterRef.current + 1;
       
-      // Enhanced duplicate check using both timestamp and sequence
-      if (currentTimestamp <= lastTransmittedTimestamp && currentSequence <= lastTransmittedSequence) {
+      // Enhanced duplicate check using timestamp
+      if (currentTimestamp <= lastTransmittedTimestamp) {
         return prev; // Return previous data without changes
       }
       
@@ -669,9 +657,10 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       
       // Use GNSS generator for realistic GPS data
       const gnssData = gnssGenerator?.generateRawData() || {
-        latitude: prev.latitude || parseFloat(simulationSettings.latitude) || -33.8688,
-        longitude: prev.longitude || parseFloat(simulationSettings.longitude) || 151.2093,
-        altitude: prev.altitude || parseFloat(simulationSettings.altitude) || 100
+        nmea: `$GPGGA,000000,3352.128,S,15112.558,E,1,8,0.9,${parseFloat(simulationSettings.altitude) || 100}.0,M,,M,,*5C`,
+        latitude: parseFloat(simulationSettings.latitude) || -33.8688,
+        longitude: parseFloat(simulationSettings.longitude) || 151.2093,
+        altitude: parseFloat(simulationSettings.altitude) || 100
       };
       
       // Use battery generator for realistic battery data
@@ -825,19 +814,15 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           batt: batteryBuffer.toString('base64'),
           
           // System data (unchanged but with shorter field names)
-          ts: currentTimestamp,
-          time: flightTime,
-          sequence: currentSequence
+          ts: currentTimestamp
         };
         
         // Calculate realistic compression metrics based on full JSON size
         let compressionMetrics;
         if (compressionSettings.showMetrics) {
-          // Calculate the size of uncompressed JSON that would be transmitted
+          // Calculate the size of uncompressed JSON that would be transmitted (excluding timestamp)
           const uncompressedData = {
-            latitude: gnssData.latitude,
-            longitude: gnssData.longitude,
-            altitude: gnssData.altitude,
+            gnss: (gnssData as any).nmea || '',
             temperature: temperatureData.temperature,
             coLevel: coData.sensorValue,
             no2Level: no2Data.sensorValue,
@@ -845,14 +830,22 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
             voltage: batteryData.voltage,
             current: batteryData.current,
             batteryPercentage: batteryData.percentage,
-            batteryStatus: batteryData.status,
-            timestamp: compressedData.ts,
-            flightTime: flightTime
+            batteryStatus: batteryData.status
           };
           
-          // Calculate actual JSON string sizes for transmission
+          // Calculate compressed data size (excluding timestamp)
+          const compressedDataForCalculation = {
+            gnss: compressedData.gnss,
+            temp: compressedData.temp,
+            co: compressedData.co,
+            no2: compressedData.no2,
+            so2: compressedData.so2,
+            batt: compressedData.batt
+          };
+          
+          // Calculate actual JSON string sizes for transmission (excluding timestamp)
           const uncompressedSize = JSON.stringify(uncompressedData).length;
-          const compressedSize = JSON.stringify(compressedData).length;
+          const compressedSize = JSON.stringify(compressedDataForCalculation).length;
           
                      compressionMetrics = {
              compressionRatio: uncompressedSize > 0 ? uncompressedSize / compressedSize : 1,
@@ -865,9 +858,6 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           (compressedData as any).compressionMetrics = compressionMetrics;
         }
                   
-          // Update sequence counter after successful data generation
-          sequenceCounterRef.current = currentSequence;
-          
           // Auto-transmit compressed data
         transmitTelemetryAutomatically(compressedData);
         return compressedData;
@@ -875,10 +865,8 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       } else {
         // COMPRESSION DISABLED: Store raw values
         const rawData = {
-          // Raw GPS data
-          latitude: gnssData.latitude,
-          longitude: gnssData.longitude,
-          altitude: gnssData.altitude,
+          // Raw GNSS data in NMEA format
+          gnss: (gnssData as any).nmea || '',
           
           // Raw sensor data
           temperature: temperatureData.temperature,
@@ -893,16 +881,11 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           batteryStatus: batteryData.status,
           
           // System data
-          timestamp: currentTimestamp,
-          flightTime: flightTime,
-          sequence: currentSequence
+          timestamp: currentTimestamp
           
           // No compression metrics
         };
                   
-          // Update sequence counter after successful data generation
-          sequenceCounterRef.current = currentSequence;
-          
           // Auto-transmit raw data with slight delay for uncompressed data
         setTimeout(() => transmitTelemetryAutomatically(rawData), 50);
         return rawData;
@@ -997,9 +980,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     
     // Initialize telemetry data with simulation settings
     setTelemetryData({
-      latitude: parseFloat(simulationSettings.latitude),
-      longitude: parseFloat(simulationSettings.longitude),
-      altitude: parseFloat(simulationSettings.altitude),
+      gnss: `$GPGGA,000000,3352.128,S,15112.558,E,1,8,0.9,${parseFloat(simulationSettings.altitude) || 100}.0,M,,M,,*5C`,
       temperature: parseFloat(simulationSettings.temperature),
       coLevel: parseFloat(simulationSettings.coLevel),
       no2Level: parseFloat(simulationSettings.no2Level),
@@ -1008,8 +989,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       current: parseFloat(simulationSettings.current),
       batteryPercentage: parseFloat(simulationSettings.batteryPercentage),
       batteryStatus: simulationSettings.batteryStatus,
-      timestamp: Date.now(),
-      flightTime: 0
+      timestamp: Date.now()
     });
     
     setStartTime(Date.now());
@@ -1045,7 +1025,6 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     setTelemetryData({}); // Clear data instead of setting defaults
     setLastTransmittedTimestamp(0);
     setLastTransmittedSequence(0);
-    sequenceCounterRef.current = 0;
     setBatteryGenerator(null);
     setTemperatureGenerator(null);
     setGnssGenerator(null);

@@ -174,6 +174,13 @@ export default function TelemetryPage() {
         enabled: true,
         showMetrics: true  // Force enable metrics when compression is enabled
       }));
+    } else if (name === 'enabled' && !checked) {
+      // If disabling compression, also disable showMetrics
+      setCompressionSettings(prev => ({
+        ...prev,
+        enabled: false,
+        showMetrics: false  // Force disable metrics when compression is disabled
+      }));
     } else {
       setCompressionSettings(prev => ({
         ...prev,
@@ -348,10 +355,10 @@ export default function TelemetryPage() {
                       id="showMetrics"
                       checked={compressionSettings.showMetrics}
                       onChange={handleCompressionToggle}
-                      disabled={isSimulating || compressionSettings.enabled}
+                      disabled={true}
                       description={compressionSettings.enabled 
                         ? "Automatically enabled when compression is on" 
-                        : "Display compression ratio and performance statistics"}
+                        : "Enable compression first to show metrics"}
                     />
                   </div>
                 </section>

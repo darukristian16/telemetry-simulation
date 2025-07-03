@@ -8,6 +8,52 @@ import { TemperatureDecompressor } from '@/lib/compression/TemperatureDecompress
 import { GasSensorDecompressor } from '@/lib/compression/GasSensorDecompressor';
 import { BatteryDecompressor } from '@/lib/compression/BatteryDecompressor';
 
+// Function to parse NMEA $GPGGA sentence and extract coordinates
+function parseNMEA(nmeaString: string): { latitude: number; longitude: number; altitude: number } {
+  // Default values
+  const defaultData = { latitude: -33.8688, longitude: 151.2093, altitude: 100 };
+  
+  if (!nmeaString || !nmeaString.startsWith('$GPGGA')) {
+    return defaultData;
+  }
+  
+  try {
+    const parts = nmeaString.split(',');
+    if (parts.length < 15) return defaultData;
+    
+    // Parse latitude (format: DDMM.MMM,N/S)
+    const latStr = parts[2];
+    const latDir = parts[3];
+    let latitude = 0;
+    if (latStr && latDir) {
+      const degrees = parseInt(latStr.substring(0, 2));
+      const minutes = parseFloat(latStr.substring(2));
+      latitude = degrees + minutes / 60;
+      if (latDir === 'S') latitude = -latitude;
+    }
+    
+    // Parse longitude (format: DDDMM.MMM,E/W)
+    const lonStr = parts[4];
+    const lonDir = parts[5];
+    let longitude = 0;
+    if (lonStr && lonDir) {
+      const degrees = parseInt(lonStr.substring(0, 3));
+      const minutes = parseFloat(lonStr.substring(3));
+      longitude = degrees + minutes / 60;
+      if (lonDir === 'W') longitude = -longitude;
+    }
+    
+    // Parse altitude (format: NNN.N,M)
+    const altStr = parts[9];
+    const altitude = altStr ? parseFloat(altStr) : 100;
+    
+    return { latitude, longitude, altitude };
+  } catch (error) {
+    console.error('Error parsing NMEA string:', error);
+    return defaultData;
+  }
+}
+
 // Component that processes telemetry data and forwards it to Dashboard
 export function DataProcessor() {
   const { telemetryData } = useTelemetry();
@@ -34,8 +80,8 @@ export function DataProcessor() {
       try {
         let processedData: ProcessedTelemetryData;
 
-        // Check if data is compressed (has Base64 fields) or raw
-        const isCompressed = !!(telemetryData.gnss || telemetryData.temp || telemetryData.co || 
+        // Check if data is compressed (Base64 compressed gnss) or raw (NMEA string gnss)
+        const isCompressed = !!(telemetryData.temp || telemetryData.co || 
                                 telemetryData.no2 || telemetryData.so2 || telemetryData.batt);
 
         if (isCompressed) {
@@ -43,11 +89,12 @@ export function DataProcessor() {
           processedData = await decompressData(telemetryData);
           processedData.dataSource = 'decompressed';
         } else {
-          // RAW DATA: Pass through directly
+          // RAW DATA: Parse NMEA string and process other raw values
+          const nmeaData = parseNMEA(telemetryData.gnss || '');
           processedData = {
-            latitude: telemetryData.latitude || 0,
-            longitude: telemetryData.longitude || 0,
-            altitude: telemetryData.altitude || 0,
+            latitude: nmeaData.latitude,
+            longitude: nmeaData.longitude,
+            altitude: nmeaData.altitude,
             temperature: telemetryData.temperature || 0,
             coLevel: telemetryData.coLevel || 0,
             no2Level: telemetryData.no2Level || 0,
@@ -57,7 +104,6 @@ export function DataProcessor() {
             batteryPercentage: telemetryData.batteryPercentage || 0,
             batteryStatus: telemetryData.batteryStatus || 'Unknown',
             timestamp: telemetryData.timestamp || Date.now(),
-            signalStrength: telemetryData.signalStrength || 0,
             flightTime: telemetryData.flightTime || 0,
             dataSource: 'raw'
           };
@@ -95,7 +141,6 @@ export function DataProcessor() {
 // Real decompression function using actual decompression algorithms
 async function decompressData(compressedData: any): Promise<ProcessedTelemetryData> {
   const timestamp = compressedData.ts || Date.now();
-  const signalStrength = compressedData.sig || 0;
   const flightTime = compressedData.time || 0;
 
   // Initialize decompressors
@@ -197,7 +242,6 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
     batteryPercentage,
     batteryStatus,
     timestamp,
-    signalStrength,
     flightTime,
     dataSource: 'decompressed'
   };
