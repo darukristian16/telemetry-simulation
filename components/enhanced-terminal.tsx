@@ -76,22 +76,23 @@ export function EnhancedTerminal() {
       const sessionState = getSessionState();
       const storeIsConnected = useSerialStore.getState().isConnected;
       
-      console.log('Session state:', {
+      console.log('Terminal Session state:', {
         hasPort: !!sessionState.port,
         isConnected: storeIsConnected,
         portReadable: !!sessionState.port?.readable,
-        portWritable: !!sessionState.port?.writable
+        portWritable: !!sessionState.port?.writable,
+        portReadableLocked: !!sessionState.port?.readable?.locked
       });
       
       if (sessionState.port && (sessionState.port.readable || sessionState.port.writable)) {
-        console.log('📡 Found existing open port in session state, recovering connection...');
+        console.log('📡 Found existing open port in session state...');
         
-        // Reset all refs to ensure clean state
+        // Always reset refs to ensure clean state
         readLoopActiveRef.current = false;
         readerRef.current = null;
         writerRef.current = null;
         
-        // Update ALL state to match the actual connection
+        // Update state to match the actual connection
         setConnected(true);
         useSerialStore.setState({ 
           port: sessionState.port,
@@ -105,10 +106,11 @@ export function EnhancedTerminal() {
           status: 'Connected',
         });
       
-        // Always restart the read loop for recovered connections
-        if (sessionState.port.readable) {
-          console.log('🔄 Starting read loop for recovered connection');
-          
+        // NEVER start our own read loop if port is already locked (SerialTelemetryBridge is active)
+        if (sessionState.port.readable?.locked) {
+          console.log('📡 SerialTelemetryBridge is already reading from port - Terminal will be passive');
+        } else if (sessionState.port.readable && !sessionState.port.readable.locked) {
+          console.log('🔄 Port not locked, Terminal can start read loop');
           // Small delay to ensure component is fully mounted
           setTimeout(() => {
             try {
@@ -119,7 +121,7 @@ export function EnhancedTerminal() {
           }, 100);
         }
         
-        console.log('✅ Connection recovered successfully - UI should show Connected');
+        console.log('✅ Terminal connection state updated');
       } else {
         console.log('❌ No existing connection found, ensuring clean state');
         
@@ -138,19 +140,34 @@ export function EnhancedTerminal() {
     
     // Clean up on unmount
     return () => {
-      console.log('Terminal component unmounting, cleaning up');
+      console.log('Terminal component unmounting, checking if it should clean up...');
       
-      // Stop the read loop
+      // Check if SerialTelemetryBridge is using the port
+      const sessionState = getSessionState();
+      const portIsLocked = sessionState.port?.readable?.locked;
+      
+      if (portIsLocked) {
+        console.log('📡 SerialTelemetryBridge is using the port, Terminal will NOT interfere with cleanup');
+        // Don't interfere with SerialTelemetryBridge - just clean our refs
+      readLoopActiveRef.current = false;
+        readerRef.current = null;
+        writerRef.current = null;
+        return;
+      }
+      
+      console.log('🧹 Terminal cleaning up its own resources');
+      
+      // Stop the read loop only if we own it
       readLoopActiveRef.current = false;
       
-      // Properly release reader if we have one
+      // Properly release reader if we have one and we own it
       if (readerRef.current) {
         try {
           readerRef.current.cancel().catch(() => {});
           readerRef.current.releaseLock();
-          console.log('Reader released on unmount');
+          console.log('Terminal: Reader released on unmount');
         } catch (error) {
-          console.log('Error releasing reader on unmount:', error);
+          console.log('Terminal: Error releasing reader on unmount:', error);
         }
         readerRef.current = null;
       }
@@ -159,9 +176,9 @@ export function EnhancedTerminal() {
       if (writerRef.current) {
         try {
           writerRef.current.releaseLock();
-          console.log('Writer released on unmount');
+          console.log('Terminal: Writer released on unmount');
         } catch (error) {
-          console.log('Error releasing writer on unmount:', error);
+          console.log('Terminal: Error releasing writer on unmount:', error);
         }
         writerRef.current = null;
       }
@@ -232,8 +249,12 @@ export function EnhancedTerminal() {
         useSerialStore.setState({ port, isConnected: true });
         setConnected(true);
         
-        // Start reading from the existing port
+        // Only start reading if not already locked by SerialTelemetryBridge
+        if (!port.readable?.locked) {
         readFromPort(port);
+        } else {
+          console.log('📡 SerialTelemetryBridge is already reading, using shared content');
+        }
         
         setStatus('idle');
         return;
@@ -255,8 +276,12 @@ export function EnhancedTerminal() {
       useSerialStore.setState({ port, isConnected: true });
       setConnected(true);
       
-      // Start reading from the port
+      // Only start reading if not already locked by SerialTelemetryBridge
+      if (!port.readable?.locked) {
       readFromPort(port);
+      } else {
+        console.log('📡 SerialTelemetryBridge is already reading, using shared content');
+      }
       
       setStatus('idle');
     } catch (err: any) {
@@ -370,7 +395,9 @@ export function EnhancedTerminal() {
     }
     // Check if stream is already locked
     if (port.readable.locked) {
-      console.log('⚠️ Readable stream is already locked, cannot start reading');
+      console.log('⚠️ Readable stream is already locked by SerialTelemetryBridge, using shared terminal content');
+      // Don't start our own reader - let SerialTelemetryBridge handle it
+      // The terminal will display content from the shared terminalContent state
       return;
     }
     try {

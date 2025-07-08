@@ -226,29 +226,57 @@ export class GNSSCompressor {
     if (parts[0] !== '$GPGGA') {
       return null;
     }
-    
-    // Extract latitude
-    let lat = parseFloat(parts[2].substring(0, 2)) + parseFloat(parts[2].substring(2)) / 60;
-    if (parts[3] === 'S') lat = -lat;
-    
-    // Extract longitude
-    let lon = parseFloat(parts[4].substring(0, 3)) + parseFloat(parts[4].substring(3)) / 60;
-    if (parts[5] === 'W') lon = -lon;
-    
-    // Extract other data
-    const fixType = parseInt(parts[6]);
-    const satellites = parseInt(parts[7]);
-    const hdop = parseFloat(parts[8]);
-    const altitude = parseFloat(parts[9]);
-    
-    return {
-      lat,
-      lon,
-      altitude,
-      fixType,
-      satellites,
-      hdop
-    };
+
+    // Validate we have enough parts
+    if (parts.length < 10) {
+      return null;
+    }
+
+    try {
+      // Extract latitude (format: DDMM.MMM)
+      const latStr = parts[2];
+      const latDir = parts[3];
+      let lat = 0;
+      
+      if (latStr && latDir && latStr.length >= 5) {
+        // Extract degrees (first 2 digits) and minutes (remaining)
+        const latDegrees = parseInt(latStr.substring(0, 2), 10);
+        const latMinutes = parseFloat(latStr.substring(2));
+        lat = latDegrees + latMinutes / 60;
+        if (latDir === 'S') lat = -lat;
+      }
+      
+      // Extract longitude (format: DDDMM.MMM)
+      const lonStr = parts[4];
+      const lonDir = parts[5];
+      let lon = 0;
+      
+      if (lonStr && lonDir && lonStr.length >= 6) {
+        // Extract degrees (first 3 digits) and minutes (remaining)
+        const lonDegrees = parseInt(lonStr.substring(0, 3), 10);
+        const lonMinutes = parseFloat(lonStr.substring(3));
+        lon = lonDegrees + lonMinutes / 60;
+        if (lonDir === 'W') lon = -lon;
+      }
+      
+      // Extract other data with validation
+      const fixType = parts[6] ? parseInt(parts[6], 10) : 0;
+      const satellites = parts[7] ? parseInt(parts[7], 10) : 0;
+      const hdop = parts[8] ? parseFloat(parts[8]) : 0;
+      const altitude = parts[9] ? parseFloat(parts[9]) : 0;
+      
+      return {
+        lat,
+        lon,
+        altitude,
+        fixType,
+        satellites,
+        hdop
+      };
+    } catch (error) {
+      console.error('Error parsing NMEA string:', error);
+      return null;
+    }
   }
 
   // Calculate delta with error bounds

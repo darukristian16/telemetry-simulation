@@ -4,7 +4,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { EnhancedTerminal } from "@/components/enhanced-terminal"
 import { useTelemetry } from "@/context/TelemetryContext"
-import { SerialTelemetryBridge } from "@/components/SerialTelemetryBridge"
+
 import { TerminalApiBridge } from "@/components/TerminalApiBridge"
 import { Button } from "@/components/ui/button"
 import { Play, Square } from "lucide-react"
@@ -35,7 +35,6 @@ export default function Page() {
 
   return (
     <>
-      <SerialTelemetryBridge />
     <FullPageContent>
       <SidebarProvider
         style={

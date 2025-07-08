@@ -63,19 +63,37 @@ export function DataProcessor() {
   const lastProcessedTimestamp = useRef<number>(0);
 
   useEffect(() => {
-    if (!telemetryData) return;
+    console.log('🔄 DataProcessor: received telemetryData:', telemetryData);
+    
+    if (!telemetryData) {
+      console.log('📝 DataProcessor: No telemetry data to process');
+      return;
+    }
 
     // Get current timestamp (handle both compressed and raw formats)
-    const currentTimestamp = telemetryData.timestamp || telemetryData.ts || 0;
+    // Raw data uses transmissionTimestamp, compressed data uses ts
+    const currentTimestamp = telemetryData.transmissionTimestamp || telemetryData.ts || telemetryData.timestamp || Date.now();
+    
+    console.log('🔄 DataProcessor: processing data with timestamp:', currentTimestamp, 'last processed:', lastProcessedTimestamp.current);
+    console.log('🔄 DataProcessor: telemetry data keys:', Object.keys(telemetryData));
+    console.log('🔄 DataProcessor: timestamp fields:', {
+      transmissionTimestamp: telemetryData.transmissionTimestamp,
+      ts: telemetryData.ts,
+      timestamp: telemetryData.timestamp
+    });
     
     // Prevent processing duplicate data - only process if timestamp has changed
-    if (currentTimestamp <= lastProcessedTimestamp.current) {
+    // Allow small tolerance for timing differences
+    if (currentTimestamp && Math.abs(currentTimestamp - lastProcessedTimestamp.current) < 1) {
+      console.log('📝 DataProcessor: Skipping duplicate data (timestamps too close)');
       return;
     }
 
     const processData = async () => {
       const startTime = performance.now();
       setIsReceivingData(true);
+      
+      console.log('🔄 DataProcessor: Starting data processing...');
 
       try {
         let processedData: ProcessedTelemetryData;
@@ -85,9 +103,16 @@ export function DataProcessor() {
                                 telemetryData.no2 || telemetryData.so2 || telemetryData.batt);
 
         if (isCompressed) {
-          // COMPRESSED DATA: Decompress it
-          processedData = await decompressData(telemetryData);
-          processedData.dataSource = 'decompressed';
+                  // COMPRESSED DATA: Decompress it
+        processedData = await decompressData(telemetryData);
+        processedData.dataSource = 'decompressed';
+
+        console.log('🔄 DataProcessor: Compressed data processed with flightTime:', {
+          inputFlightTime: telemetryData.flightTime,
+          outputFlightTime: processedData.flightTime,
+          hasFlightTime: !!telemetryData.flightTime,
+          source: 'DataProcessor-Compressed'
+        });
         } else {
           // RAW DATA: Parse NMEA string and process other raw values
           const nmeaData = parseNMEA(telemetryData.gnss || '');
@@ -107,6 +132,13 @@ export function DataProcessor() {
             flightTime: telemetryData.flightTime || 0,
             dataSource: 'raw'
           };
+
+          console.log('🔄 DataProcessor: Raw data processed with flightTime:', {
+            inputFlightTime: telemetryData.flightTime,
+            outputFlightTime: processedData.flightTime,
+            hasFlightTime: !!telemetryData.flightTime,
+            source: 'DataProcessor-Raw'
+          });
         }
 
         const endTime = performance.now();
@@ -117,12 +149,23 @@ export function DataProcessor() {
         // Update last processed timestamp
         lastProcessedTimestamp.current = currentTimestamp;
 
+        console.log('📡 DataProcessor: Forwarding processed data to dashboard:', processedData);
+        
+        // Check if data has transmissionTimestamp (indicates it came from serial reception)
+        // If so, don't override the data that SerialTelemetryBridge already processed
+        if (telemetryData.transmissionTimestamp) {
+          console.log('📡 DataProcessor: Skipping dashboard update - data already processed by SerialTelemetryBridge');
+          return;
+        }
+        
         // Forward processed data to Dashboard
         setProcessedData(processedData);
         setLastUpdateTime(Date.now());
         
         // Update statistics
         updateDataStats(processingTime, isCompressed);
+        
+        console.log('✅ DataProcessor: Data processing completed successfully');
 
       } catch (error) {
         console.error('Error processing telemetry data:', error);

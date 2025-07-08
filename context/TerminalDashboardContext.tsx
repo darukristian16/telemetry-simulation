@@ -27,7 +27,8 @@ export interface ProcessedTelemetryData {
   
   // Processing metadata
   dataSource: 'raw' | 'decompressed'; // Indicates if data was compressed before processing
-  processingTime?: number; // Time taken to process/decompress data
+  processingTime?: number; // Time taken to process/decompress data (ms)
+  processingLatency?: number; // Time from transmission to processing (ms)
 }
 
 // Define the context interface
@@ -43,8 +44,9 @@ interface TerminalDashboardContextType {
     rawPackets: number;
     compressedPackets: number;
     averageProcessingTime: number;
+    averageLatency: number;
   };
-  updateDataStats: (processingTime: number, wasCompressed: boolean) => void;
+  updateDataStats: (processingTime: number, wasCompressed: boolean, latency?: number) => void;
   resetStats: () => void;
 }
 
@@ -78,10 +80,17 @@ export function TerminalDashboardProvider({ children }: { children: ReactNode })
     totalPacketsReceived: 0,
     rawPackets: 0,
     compressedPackets: 0,
-    averageProcessingTime: 0
+    averageProcessingTime: 0,
+    averageLatency: 0
   });
+  
+  // Debug: Log when data changes
+  const debugSetProcessedData = (newData: ProcessedTelemetryData | null) => {
+    console.log('📊 TerminalDashboardContext: setProcessedData called with:', newData);
+    setProcessedData(newData);
+  };
 
-  const updateDataStats = (processingTime: number, wasCompressed: boolean) => {
+  const updateDataStats = (processingTime: number, wasCompressed: boolean, latency?: number) => {
     setDataStats(prev => {
       const newTotal = prev.totalPacketsReceived + 1;
       const newRaw = wasCompressed ? prev.rawPackets : prev.rawPackets + 1;
@@ -91,11 +100,16 @@ export function TerminalDashboardProvider({ children }: { children: ReactNode })
       const newAverageProcessingTime = 
         (prev.averageProcessingTime * prev.totalPacketsReceived + processingTime) / newTotal;
       
+      // Calculate running average of latency
+      const newAverageLatency = 
+        (prev.averageLatency * prev.totalPacketsReceived + (latency || 0)) / newTotal;
+      
       return {
         totalPacketsReceived: newTotal,
         rawPackets: newRaw,
         compressedPackets: newCompressed,
-        averageProcessingTime: newAverageProcessingTime
+        averageProcessingTime: newAverageProcessingTime,
+        averageLatency: newAverageLatency
       };
     });
   };
@@ -105,7 +119,8 @@ export function TerminalDashboardProvider({ children }: { children: ReactNode })
       totalPacketsReceived: 0,
       rawPackets: 0,
       compressedPackets: 0,
-      averageProcessingTime: 0
+      averageProcessingTime: 0,
+      averageLatency: 0
     });
   };
 
@@ -113,7 +128,7 @@ export function TerminalDashboardProvider({ children }: { children: ReactNode })
     <TerminalDashboardContext.Provider
       value={{
         processedData,
-        setProcessedData,
+        setProcessedData: debugSetProcessedData,
         isReceivingData,
         setIsReceivingData,
         lastUpdateTime,

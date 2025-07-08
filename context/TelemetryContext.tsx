@@ -192,7 +192,17 @@ class GNSSDataGenerator {
         let degrees = Math.floor(Math.abs(value));
         let minutes = (Math.abs(value) - degrees) * 60;
         let direction = value >= 0 ? directionPositive : directionNegative;
-        return `${degrees}${minutes.toFixed(3)},${direction}`;
+        
+        // Determine if this is longitude (3 digits) or latitude (2 digits) based on direction
+        const isLongitude = directionPositive === 'E' || directionNegative === 'W';
+        
+        if (isLongitude) {
+            // Longitude: DDDMM.MMM format (3 digits for degrees)
+            return `${degrees.toString().padStart(3, '0')}${minutes.toFixed(3).padStart(6, '0')},${direction}`;
+        } else {
+            // Latitude: DDMM.MMM format (2 digits for degrees)  
+            return `${degrees.toString().padStart(2, '0')}${minutes.toFixed(3).padStart(6, '0')},${direction}`;
+        }
     }
 
     // Compute XOR checksum for NMEA data
@@ -427,8 +437,11 @@ export interface TelemetryData {
   batt?: string;           // Only when compression enabled (Base64)
   
   // System Data (always present - but field names change with compression)
-  timestamp?: number;      // Only when compression disabled
   ts?: number;             // Only when compression enabled (timestamp)
+  
+  // Latency tracking (for uncompressed data)
+  transmissionTimestamp?: number; // When data was transmitted (performance.now())
+  processingLatency?: number;     // Time from transmission to processing (ms)
   
   // Compression Data (optional - only populated when compression is enabled and metrics are shown)
   compressionMetrics?: {
@@ -486,8 +499,7 @@ const defaultTelemetryData: TelemetryData = {
   voltage: 25,
   current: 1.5,
   batteryPercentage: 100,
-  batteryStatus: "Discharging",
-  timestamp: Date.now()
+  batteryStatus: "Discharging"
 };
 
 const defaultSimulationSettings = {
@@ -586,15 +598,28 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       }
       
       // Get current timestamp to avoid duplicate transmissions
-      const currentTimestamp = data.timestamp || data.ts || 0;
+      const currentTimestamp = data.ts || Date.now();
       
       if (currentTimestamp <= lastTransmittedTimestamp) {
         console.log('⏭️ Skipping duplicate transmission - timestamp:', currentTimestamp);
         return;
       }
       
-      const jsonData = JSON.stringify(data) + '\n';
-      console.log('📡 Transmitting data:', jsonData.length, 'bytes');
+      // Set precise transmission timestamp right before writing to serial port
+      const transmissionTimestamp = performance.now();
+      const dataWithTimestamp = {
+        ...data,
+        transmissionTimestamp: transmissionTimestamp
+      };
+      
+      const jsonData = JSON.stringify(dataWithTimestamp) + '\n';
+      console.log('🚀 TRANSMISSION DEBUG:', {
+        transmissionTimestamp: transmissionTimestamp,
+        performanceNow: performance.now(),
+        dateNow: Date.now(),
+        dataKeys: Object.keys(dataWithTimestamp),
+        hasTransmissionTimestamp: 'transmissionTimestamp' in dataWithTimestamp
+      });
       
       let writer = null;
       try {
@@ -662,6 +687,14 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         longitude: parseFloat(simulationSettings.longitude) || 151.2093,
         altitude: parseFloat(simulationSettings.altitude) || 100
       };
+      
+      // Debug: Log the generated GNSS data
+      console.log('🛰️ Generated GNSS Data:', {
+        nmea: gnssData.nmea,
+        latitude: gnssData.latitude,
+        longitude: gnssData.longitude,
+        altitude: gnssData.altitude
+      });
       
       // Use battery generator for realistic battery data
       const batteryData = batteryGenerator?.generateRawData() || {
@@ -878,16 +911,23 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           voltage: batteryData.voltage,
           current: batteryData.current,
           batteryPercentage: batteryData.percentage,
-          batteryStatus: batteryData.status,
+          batteryStatus: batteryData.status
           
-          // System data
-          timestamp: currentTimestamp
-          
-          // No compression metrics
+          // Note: transmissionTimestamp will be set precisely when transmitting
         };
+        
+        // Debug: Log the raw data being transmitted
+        console.log('📡 Transmitting RAW Data:', {
+          gnss: rawData.gnss,
+          gnssParsed: {
+            latitude: gnssData.latitude,
+            longitude: gnssData.longitude,
+            altitude: gnssData.altitude
+          }
+        });
                   
-          // Auto-transmit raw data with slight delay for uncompressed data
-        setTimeout(() => transmitTelemetryAutomatically(rawData), 50);
+          // Auto-transmit raw data immediately (no delay to minimize latency)
+        transmitTelemetryAutomatically(rawData);
         return rawData;
       }
     });
@@ -988,8 +1028,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       voltage: parseFloat(simulationSettings.voltage),
       current: parseFloat(simulationSettings.current),
       batteryPercentage: parseFloat(simulationSettings.batteryPercentage),
-      batteryStatus: simulationSettings.batteryStatus,
-      timestamp: Date.now()
+      batteryStatus: simulationSettings.batteryStatus
     });
     
     setStartTime(Date.now());

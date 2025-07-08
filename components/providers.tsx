@@ -6,6 +6,7 @@ import { TelemetryProvider } from '@/context/TelemetryContext';
 import { TerminalDashboardProvider } from '@/context/TerminalDashboardContext';
 import { ProcessedDataProvider } from '@/context/ProcessedDataContext';
 import SessionProviderWrapper from './SessionProviderWrapper';
+import { SerialTelemetryBridge } from './SerialTelemetryBridge';
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -19,6 +20,8 @@ export function Providers({ children }: ProvidersProps) {
         <TelemetryProvider>
           <ProcessedDataProvider>
             <TerminalDashboardProvider>
+              {/* SerialTelemetryBridge is mounted globally to ensure continuous data processing */}
+              <SerialTelemetryBridge />
               {children}
             </TerminalDashboardProvider>
           </ProcessedDataProvider>
