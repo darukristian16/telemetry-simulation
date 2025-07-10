@@ -57,10 +57,8 @@ function parseNMEA(nmeaString: string): { latitude: number; longitude: number; a
 
 // Function to process serial telemetry data to dashboard format
 function processSerialTelemetryData(telemetryData: any, flightStartTime: number | null, isFlightActive: boolean): ProcessedTelemetryData {
-  // Calculate processing latency if transmission timestamp is available
-  const currentTime = performance.now();
-  const transmissionTime = telemetryData.transmissionTimestamp;
-  const processingLatency = transmissionTime ? currentTime - transmissionTime : undefined;
+  // Use pre-calculated latency from immediate reception timestamp, not current time
+  const processingLatency = telemetryData.processingLatency;
   
   // Calculate flight time based on data reception
   let flightTime = 0;
@@ -85,21 +83,17 @@ function processSerialTelemetryData(telemetryData: any, flightStartTime: number 
   
   // Note: Latency debugging removed for cleaner console output
   
-  // Debug: Log timestamp details to identify the issue
-  console.log('📥 RECEPTION DEBUG:', {
-    currentTime: currentTime,
-    currentPerformanceNow: performance.now(),
-    currentDateNow: Date.now(),
-    transmissionTime: transmissionTime,
-    transmissionTimestampType: typeof transmissionTime,
-    difference: processingLatency,
+  // Debug: Log processed data with pre-calculated latency
+  console.log('📥 PROCESSING DEBUG:', {
+    currentProcessingTime: Date.now(),
+    transmissionTime: telemetryData.transmissionTimestamp,
+    preCalculatedLatencyMs: processingLatency,
     telemetryKeys: Object.keys(telemetryData),
-    rawTimestampValue: telemetryData.transmissionTimestamp,
-    isValidTimestamp: transmissionTime && transmissionTime > 0,
-    timeDeltaMs: transmissionTime ? (currentTime - transmissionTime) : 'N/A',
+    hasPreCalculatedLatency: 'processingLatency' in telemetryData,
     flightTime: flightTime,
     flightStartTime: flightStartTime,
-    isFlightActive: isFlightActive
+    isFlightActive: isFlightActive,
+    latencySource: 'PRE_CALCULATED_AT_RECEPTION'
   });
   
   // Check if data is compressed
@@ -137,20 +131,20 @@ function processSerialTelemetryData(telemetryData: any, flightStartTime: number 
       parsedData: nmeaData
     });
     
-    // Log processing latency if available
+    // Log pre-calculated latency if available
     if (processingLatency !== undefined) {
-      console.log('⏱️ Processing Latency:', processingLatency.toFixed(2), 'ms', 
-                  'Received at:', currentTime, 'Transmitted at:', transmissionTime);
+      console.log('⏱️ Using Pre-Calculated Latency:', processingLatency.toFixed(2), 'ms');
       
-      // Additional validation
+      // Validation for pre-calculated latency
       if (processingLatency < 0) {
-        console.warn('⚠️ NEGATIVE LATENCY DETECTED - Debug info:', {
-          processingLatency,
-          currentTime,
-          transmissionTime,
-          difference: currentTime - transmissionTime
+        console.warn('⚠️ NEGATIVE PRE-CALCULATED LATENCY - This should not happen:', {
+          preCalculatedLatency: processingLatency,
+          transmissionTimestamp: telemetryData.transmissionTimestamp,
+          latencySource: 'PRE_CALCULATED_AT_JSON_PARSING'
         });
       }
+    } else {
+      console.log('⏱️ No latency data available in telemetry');
     }
     
     return {
@@ -354,8 +348,26 @@ export function SerialTelemetryBridge() {
         
         // Try to parse the JSON
         try {
+          // Capture reception timestamp IMMEDIATELY after successful JSON parsing, before any other processing
+          const dataReceptionTimestamp = Date.now();
+          
           const telemetryData = JSON.parse(cleanedJsonString);
           console.log('📝 ✅ JSON parsed successfully:', Object.keys(telemetryData));
+          
+          // Calculate latency immediately with the earliest possible reception time
+          const transmissionTime = telemetryData.transmissionTimestamp;
+          const actualLatency = transmissionTime ? dataReceptionTimestamp - transmissionTime : undefined;
+          
+          // Add the calculated latency to telemetry data
+          if (actualLatency !== undefined) {
+            telemetryData.processingLatency = actualLatency;
+            console.log('⏱️ IMMEDIATE LATENCY CALCULATION:', {
+              transmissionTime: transmissionTime,
+              receptionTime: dataReceptionTimestamp,
+              latencyMs: actualLatency,
+              latencyCategory: actualLatency < 50 ? 'EXCELLENT' : actualLatency < 100 ? 'GOOD' : actualLatency < 200 ? 'FAIR' : 'HIGH'
+            });
+          }
           
           // Debug: Check if transmissionTimestamp survived JSON parsing
           if (telemetryData.transmissionTimestamp) {
@@ -364,8 +376,8 @@ export function SerialTelemetryBridge() {
               type: typeof telemetryData.transmissionTimestamp,
               isNumber: typeof telemetryData.transmissionTimestamp === 'number',
               value: telemetryData.transmissionTimestamp,
-              currentPerformanceNow: performance.now(),
-              difference: performance.now() - telemetryData.transmissionTimestamp
+              receptionTimestamp: dataReceptionTimestamp,
+              calculatedLatency: actualLatency
             });
           }
           

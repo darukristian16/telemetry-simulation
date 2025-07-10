@@ -2,13 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSerialStore, getSessionState, requestSerialPort } from '@/lib/store';
-import { ConnectStatus } from './connect-status';
 
 export function EnhancedTerminal() {
   const [inputText, setInputText] = useState('');
-  const [status, setStatus] = useState<'idle' | 'connecting' | 'disconnecting'>('idle');
   const terminalRef = useRef<HTMLDivElement>(null);
-  const disconnectingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   
   // Access serial state and methods from store
@@ -227,155 +224,7 @@ export function EnhancedTerminal() {
     setAutoScroll(isAtBottom);
   };
   
-  // Connect to serial device
-  const handleConnect = async () => {
-    try {
-      setStatus('connecting');
-      setError(null);
-      
-      // Request a port from the user with timeout to prevent blocking
-      const port = await requestSerialPort();
-      console.log('Port selected by user');
-      
-      // Get session state for this user
-      const sessionState = getSessionState();
-      
-      // Check if port is already open - if so, just use it instead of trying to close
-      if (port.readable || port.writable) {
-        console.log('Port is already open, using existing connection');
-        
-        // Store port in both session state and store
-        sessionState.port = port;
-        useSerialStore.setState({ port, isConnected: true });
-        setConnected(true);
-        
-        // Only start reading if not already locked by SerialTelemetryBridge
-        if (!port.readable?.locked) {
-        readFromPort(port);
-        } else {
-          console.log('📡 SerialTelemetryBridge is already reading, using shared content');
-        }
-        
-        setStatus('idle');
-        return;
-      }
-      
-      // Open the port with specified baud rate
-      await port.open({ 
-        baudRate: baudRate,
-        dataBits: 8, 
-        stopBits: 1,
-        parity: 'none',
-        flowControl: 'none'
-      });
-      
-      console.log(`Serial port opened at ${baudRate} baud`);
-      
-      // Store port in both session state and store
-      sessionState.port = port;
-      useSerialStore.setState({ port, isConnected: true });
-      setConnected(true);
-      
-      // Only start reading if not already locked by SerialTelemetryBridge
-      if (!port.readable?.locked) {
-      readFromPort(port);
-      } else {
-        console.log('📡 SerialTelemetryBridge is already reading, using shared content');
-      }
-      
-      setStatus('idle');
-    } catch (err: any) {
-      console.error('Connection error:', err);
-      setError(`Failed to connect: ${err.message || String(err)}`);
-      setConnected(false);
-      setStatus('idle');
-    }
-  };
-  
-  // Clean disconnect function with improved reliability
-  const handleDisconnect = async () => {
-    if (disconnectingRef.current) {
-      console.log('Disconnect already in progress, ignoring request');
-      return;
-    }
-    
-    disconnectingRef.current = true;
-    setStatus('disconnecting');
-    setError(null);
-    
-    try {
-      console.log('Starting disconnection process');
-      
-      // Set up a timeout to force disconnect after 5 seconds
-      const timeoutId = setTimeout(() => {
-        console.warn('Disconnect timed out, forcing cleanup');
-        forceCleanup();
-      }, 5000);
-      
-      // Stop the read loop
-      readLoopActiveRef.current = false;
-      
-      // Cancel reader if active
-      if (readerRef.current) {
-        try {
-          await readerRef.current.cancel();
-          console.log('Reader cancelled');
-        } catch (err) {
-          console.warn('Error cancelling reader:', err);
-        }
-        try {
-          readerRef.current.releaseLock();
-          console.log('Reader lock released');
-        } catch (err) {
-          console.warn('Error releasing reader lock:', err);
-        }
-        readerRef.current = null;
-      }
-      
-      // Release writer if active
-      if (writerRef.current) {
-        try {
-          writerRef.current.releaseLock();
-          console.log('Writer lock released');
-        } catch (err) {
-          console.warn('Error releasing writer lock:', err);
-        }
-        writerRef.current = null;
-      }
-      
-      // Close port if available
-      const sessionState = getSessionState();
-      const port = sessionState.port;
-      if (port) {
-        try {
-          await Promise.race([
-            port.close(),
-            new Promise(r => setTimeout(r, 2000)) // 2 second timeout for closing
-          ]);
-          console.log('Port closed successfully');
-        } catch (err) {
-          console.warn('Error closing port:', err);
-        }
-      }
-      
-      // Clear the timeout since we're done
-      clearTimeout(timeoutId);
-      
-      // Update state
-      sessionState.port = null;
-      setConnected(false);
-      useSerialStore.setState({ port: null, isConnected: false });
-      
-      console.log('Disconnect completed successfully');
-    } catch (err: any) {
-      console.error('Disconnect error:', err);
-      setError(`Failed to disconnect: ${err.message || String(err)}`);
-      forceCleanup();
-    } finally {
-      setStatus('idle');
-      disconnectingRef.current = false;
-    }
-  };
+
   
   // Force cleanup in case of errors
   const forceCleanup = () => {
@@ -472,16 +321,13 @@ export function EnhancedTerminal() {
       lineBufferRef.current = '';
     } catch (err: any) {
       console.error('Fatal error in read process:', err);
-      setError(`Fatal read error: ${err.message || String(err)}`);
-      if (!disconnectingRef.current) {
-        forceCleanup();
-      }
+      forceCleanup();
     }
   };
   
   // Send a single character to the device
   const sendCharacter = async (char: string) => {
-    if (!isConnected || status !== 'idle') return;
+    if (!isConnected) return;
     
     const sessionState = getSessionState();
     const port = sessionState.port;
@@ -525,7 +371,7 @@ export function EnhancedTerminal() {
       const lastChar = value.slice(-1);
       
       // Only process if connected and has a character to send
-      if (isConnected && status === 'idle' && lastChar) {
+      if (isConnected && lastChar) {
         // Send only the last character that was typed
         sendCharacter(lastChar);
       }
@@ -548,7 +394,7 @@ export function EnhancedTerminal() {
   
   // Send a full command (for command mode)
   const sendFullCommand = async (command: string) => {
-    if (!isConnected || status !== 'idle') return;
+    if (!isConnected) return;
     
     const sessionState = getSessionState();
     const port = sessionState.port;
@@ -599,7 +445,7 @@ export function EnhancedTerminal() {
   
   // Send a quick command
   const sendQuickCommand = async (command: string) => {
-    if (!isConnected || status !== 'idle') return;
+    if (!isConnected) return;
     
     try {
       if (inputMode === 'direct') {
@@ -627,7 +473,7 @@ export function EnhancedTerminal() {
   
   // Resend a command from history
   const resendCommand = async (command: string) => {
-    if (!isConnected || status !== 'idle') return;
+    if (!isConnected) return;
     
     try {
       await sendQuickCommand(command);
@@ -692,16 +538,9 @@ export function EnhancedTerminal() {
   };
 
   return (
-    <div className="font-sans w-full h-full p-4">
-      {/* Connection Status Card */}
-      <ConnectStatus 
-        isConnected={isConnected} 
-        onConnectClick={isConnected ? handleDisconnect : handleConnect} 
-        error={error}
-      />
-
+    <div className="font-sans w-full h-full">
       {/* Main Content - Two Columns */}
-      <div className="flex flex-col md:flex-row gap-4 mt-4" style={{ height: "680px" }}>
+      <div className="flex flex-col md:flex-row gap-4" style={{ height: "680px" }}>
         {/* Left Column - Terminal */}
         <div className="w-full md:w-3/5 h-full">
           <div className="h-full p-4 rounded-lg shadow-md flex flex-col" style={{ backgroundColor: "#1E293B" }}>
@@ -787,7 +626,7 @@ export function EnhancedTerminal() {
                   value={inputText}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  disabled={!isConnected || status !== 'idle'}
+                  disabled={!isConnected}
                   className="flex-1 px-3 py-1.5 border bg-gray-800 text-white border-gray-700 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder={isConnected 
                     ? (inputMode === 'direct' 
@@ -805,7 +644,7 @@ export function EnhancedTerminal() {
                         setInputText('');
                       }
                     }}
-                    disabled={!isConnected || status !== 'idle' || !inputText.trim()}
+                    disabled={!isConnected || !inputText.trim()}
                     className="px-4 py-1.5 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 disabled:bg-blue-600 disabled:text-white disabled:opacity-50 font-bold flex items-center"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -836,7 +675,7 @@ export function EnhancedTerminal() {
                   <button
                     key={index}
                     onClick={() => sendQuickCommand(cmd.command)}
-                    disabled={!isConnected || status !== 'idle'}
+                    disabled={!isConnected}
                     className="p-2 bg-gray-700 text-white rounded-md hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-sm font-bold transition-colors flex items-center justify-center"
                   >
                     <span>{cmd.label}</span>

@@ -4,6 +4,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { EnhancedTerminal } from "@/components/enhanced-terminal"
 import { useTelemetry } from "@/context/TelemetryContext"
+import { UnifiedSerialConnection } from "@/components/unified-serial-connection"
 
 import { TerminalApiBridge } from "@/components/TerminalApiBridge"
 import { Button } from "@/components/ui/button"
@@ -13,6 +14,11 @@ import {
   FullPageContent,
   SidebarProvider,
 } from "@/components/ui/sidebar"
+
+// Connect Status Wrapper Component
+function ConnectStatusWrapper() {
+  return <UnifiedSerialConnection />;
+}
 
 export default function Page() {
   const { isSimulating, startSimulation, stopSimulation, telemetryData } = useTelemetry();
@@ -52,12 +58,13 @@ export default function Page() {
           padding: "1.5rem",
           flex: "1 1 auto",
           overflow: "auto",
-          backgroundColor: "#0F172A",
-          display: "flex",
-          flexDirection: "column",
-          width: "100%"
+          backgroundColor: "#0F172A"
         }}>
-          <div className="flex flex-1 flex-col space-y-4">
+          <div className="flex h-full flex-col gap-6">
+            {/* Connection Status */}
+            <ConnectStatusWrapper />
+            
+            {/* Terminal Content */}
             <div className="flex-1">
               <EnhancedTerminal />
             </div>

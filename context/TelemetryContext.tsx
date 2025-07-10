@@ -104,9 +104,20 @@ class LM35TemperatureGenerator {
 
         // Initialize temperature with user input or default
         this.currentTemperature = config.currentTemperature || 25.0; // Start with user's input
+        this.baselineTemperature = this.currentTemperature; // Store baseline for spike recovery
 
         // Compute initial voltage
         this.voltage = this.temperatureToVoltage(this.currentTemperature);
+
+        // Temperature spike system
+        this.spikePhase = 'none';    // Current spike phase: 'none', 'rising', 'sustained', 'decaying'
+        this.targetSpikeTemp = 0;    // Target spike temperature (°C)
+        this.activeSpike = 0;        // Current spike magnitude (°C)
+        this.risePhaseCounter = 0;   // Counter for exponential rise phase
+        this.risePhaseDuration = 0;  // Duration of rise phase (2-3 seconds)
+        this.spikeDuration = 0;      // Remaining sustained phase duration (updates)
+        this.spikeInitialDuration = 0; // Initial duration for reference
+        this.decayRate = 0.85;       // Decay rate (multiplier per update, 0.85 = 15% reduction per second)
     }
 
     // Convert temperature to LM35 voltage
@@ -114,23 +125,109 @@ class LM35TemperatureGenerator {
         return parseFloat((temperature / 100).toFixed(3)); // Voltage = Temperature/100
     }
 
+    // Generate random number within range
+    getRandomFloat(min: number, max: number): number {
+        return Math.random() * (max - min) + min;
+    }
+
+    // Generate random integer within range
+    getRandomInt(min: number, max: number): number {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    // Random boolean with likelihood percentage
+    getRandomBool(likelihood: number): boolean {
+        return Math.random() * 100 < likelihood;
+    }
+
     // Generate random variation within range
     getRandomChange(): number {
         return (Math.random() - 0.5) * 1.0; // Random change between -0.5 and +0.5
     }
 
-    // Simulate temperature changes
+    // Simulate temperature changes including spikes
     simulate() {
-        // Generate small random temperature fluctuation
+        // Handle temperature spike phases
+        if (this.spikePhase === 'rising') {
+            // PHASE 1: Exponential rise to target temperature
+            this.risePhaseCounter++;
+            
+            // Calculate exponential rise progress (0 to 1)
+            const progress = this.risePhaseCounter / this.risePhaseDuration;
+            
+            // Exponential rise using sinh function
+            const exponentialFactor = (Math.sinh(progress * 2)) / Math.sinh(2);
+            
+            // Set current spike based on exponential progress
+            this.activeSpike = this.targetSpikeTemp * exponentialFactor;
+            
+            // Check if rise phase is complete
+            if (this.risePhaseCounter >= this.risePhaseDuration) {
+                this.spikePhase = 'sustained';
+                this.activeSpike = this.targetSpikeTemp; // Ensure we reach exact target
+            }
+        } else if (this.spikePhase === 'sustained') {
+            // PHASE 2: Sustained high temperature with small fluctuations
+            const spikeFluctuation = this.getRandomChange() * 0.5; // Small changes around spike level
+            this.activeSpike += spikeFluctuation;
+            
+            // Keep spike within reasonable bounds around target
+            const minSpike = this.targetSpikeTemp - 3; // Allow 3°C below target
+            const maxSpike = this.targetSpikeTemp + 3; // Allow 3°C above target
+            this.activeSpike = Math.max(minSpike, Math.min(maxSpike, this.activeSpike));
+            
+            this.spikeDuration--;
+            
+            // When sustained phase ends, enter decay phase
+            if (this.spikeDuration <= 0) {
+                this.spikePhase = 'decaying';
+            }
+        } else if (this.spikePhase === 'decaying') {
+            // PHASE 3: Gradual decay back to baseline
+            this.activeSpike *= this.decayRate; // Reduce by 15% each update
+            
+            // When spike magnitude becomes very small, end decay phase
+            if (this.activeSpike < 0.5) {
+                this.activeSpike = 0;
+                this.spikePhase = 'none';
+            }
+        } else {
+            // PHASE 0: Normal operation - check for new temperature spike
+            const spikeChance = this.getRandomFloat(5, 10);
+            if (this.getRandomBool(spikeChance)) {
+                // Initialize new temperature spike
+                this.targetSpikeTemp = this.getRandomFloat(20, 50); // +20°C to +50°C target
+                this.spikeInitialDuration = this.getRandomInt(8, 25); // 8-25 seconds sustained duration
+                this.spikeDuration = this.spikeInitialDuration;
+                this.risePhaseDuration = this.getRandomInt(2, 4); // 2-4 seconds rise time
+                this.risePhaseCounter = 0;
+                this.activeSpike = 0; // Start from baseline
+                this.spikePhase = 'rising';
+            }
+        }
+
+        // Generate small random temperature fluctuation for baseline
         let tempChange = this.getRandomChange();
 
-        // Apply change while keeping temperature within limits
-        this.currentTemperature = Math.max(
+        // Update baseline temperature with small changes
+        this.baselineTemperature += tempChange; // Smaller baseline changes
+        
+        // Apply temperature limits to baseline
+        this.baselineTemperature = Math.max(
             this.minTemperature, 
-            Math.min(this.maxTemperature, this.currentTemperature + tempChange)
+            Math.min(this.maxTemperature - 50, this.baselineTemperature) // Leave room for spikes
         );
 
-        // Update voltage based on new temperature
+        // Calculate current temperature: baseline + spike effect
+        this.currentTemperature = this.baselineTemperature + this.activeSpike;
+        
+        // Ensure final temperature stays within absolute limits
+        this.currentTemperature = Math.max(
+            this.minTemperature, 
+            Math.min(this.maxTemperature, this.currentTemperature)
+        );
+
+        // Update voltage based on current temperature
         this.voltage = this.temperatureToVoltage(this.currentTemperature);
     }
 
@@ -147,7 +244,16 @@ class LM35TemperatureGenerator {
     private minTemperature: number;
     private maxTemperature: number;
     private currentTemperature: number;
+    private baselineTemperature: number;
     private voltage: number;
+    private spikePhase: 'none' | 'rising' | 'sustained' | 'decaying';
+    private targetSpikeTemp: number;
+    private activeSpike: number;
+    private risePhaseCounter: number;
+    private risePhaseDuration: number;
+    private spikeDuration: number;
+    private spikeInitialDuration: number;
+    private decayRate: number;
 }
 
 // GNSS Data Generator class that simulates real-time GPS readings with NMEA format
@@ -253,14 +359,17 @@ class GNSSDataGenerator {
 
 // Gas Sensor Data Generator class that simulates realistic gas sensor readings
 class GasSensorDataGenerator {
-    constructor(config: {
+    constructor(gasType: 'CO' | 'NO2' | 'SO2', config: {
         currentBase?: number;
         [key: string]: any;
     } = {}) {
-        // Merge custom config with defaults
-        this.CONFIG = { ...this.DEFAULT_CONFIG, ...config };
+        // Set gas type
+        this.gasType = gasType;
         
-        // Set base value from user input
+        // Get gas-specific configuration
+        this.CONFIG = { ...this.getGasSpecificConfig(gasType), ...config };
+        
+        // Set base value from user input or gas-specific default
         if (config.currentBase !== undefined) {
             this.CONFIG.BASE_VALUE = config.currentBase;
         }
@@ -272,26 +381,79 @@ class GasSensorDataGenerator {
             timeStep: 0,
             lastValue: null,
             trend: 0,
-            trendStrength: 0.2,
+            trendStrength: 0.6, // Increased from 0.2 for more dynamic trends
             plateauDuration: 0,
             peakInitialDuration: 0
         };
     }
 
-    // Default configuration - optimized for realistic sensor behavior
-    private readonly DEFAULT_CONFIG = {
-        BASE_VALUE: 200,         // Will be overridden by user input
-        BASE_DRIFT: 0.1,         // Reduced drift for more stability
-        FLUCTUATION_AMPLITUDE: 15, // Reduced amplitude for more predictable patterns
-        FLUCTUATION_PERIOD: 60,  // 1 minute in seconds - more regular pattern
-        PEAK_PROBABILITY: 2,     // Lower peak probability (more stability)
-        NOISE_RANGE: 1,          // Reduced noise for better delta compression
-        PEAK_MIN: 50,            // Smaller peaks
-        PEAK_MAX: 200,           // Smaller peaks
-        PEAK_DURATION: { min: 15, max: 40 }, // Longer, smoother peaks
-        PLATEAU_PROBABILITY: 15, // Add plateau behavior for run-length encoding benefit
-        PLATEAU_DURATION: { min: 3, max: 8 }
-    };
+    // Gas-specific configurations with realistic ranges
+    private getGasSpecificConfig(gasType: 'CO' | 'NO2' | 'SO2') {
+        switch (gasType) {
+            case 'CO': // Carbon Monoxide (ppm)
+                return {
+                    BASE_VALUE: 5,           // Safe baseline 5 ppm
+                    MIN_VALUE: 0,            // Minimum possible value
+                    MAX_VALUE: 150,          // Maximum sensor range
+                    SAFE_RANGE: { min: 0, max: 9 },         // 0-9 ppm: Safe
+                    CAUTION_RANGE: { min: 10, max: 35 },    // 10-35 ppm: Caution
+                    DANGER_RANGE: { min: 36, max: 100 },    // 36-100 ppm: Dangerous
+                    LETHAL_RANGE: { min: 101, max: 150 },   // 100+ ppm: Life-threatening
+                    BASE_DRIFT: 0.8,         // Increased drift for more variation
+                    FLUCTUATION_AMPLITUDE: 6, // Increased fluctuations
+                    FLUCTUATION_PERIOD: 30,  // Faster cycles (30 seconds)
+                    PEAK_PROBABILITY: 5,     // Increased pollution events
+                    NOISE_RANGE: 1.5,        // Increased noise
+                    PEAK_MIN: 8,             // Smaller but more frequent pollution events
+                    PEAK_MAX: 25,            // Smaller but more frequent pollution events
+                    PEAK_DURATION: { min: 5, max: 15 }, // Shorter peaks
+                    PLATEAU_PROBABILITY: 5,  // Reduced plateau (more dynamic)
+                    PLATEAU_DURATION: { min: 1, max: 3 } // Shorter plateaus
+                };
+            
+            case 'NO2': // Nitrogen Dioxide (ppb)
+                return {
+                    BASE_VALUE: 25,          // Safe baseline 25 ppb
+                    MIN_VALUE: 0,            // Minimum possible value
+                    MAX_VALUE: 1200,         // Maximum sensor range
+                    SAFE_RANGE: { min: 0, max: 50 },        // 0-50 ppb: Safe
+                    CAUTION_RANGE: { min: 51, max: 200 },   // 51-200 ppb: Caution
+                    DANGER_RANGE: { min: 201, max: 1000 },  // 201-1000 ppb: Dangerous
+                    LETHAL_RANGE: { min: 1001, max: 1200 }, // 1000+ ppb: Life-threatening
+                    BASE_DRIFT: 3,           // Increased drift
+                    FLUCTUATION_AMPLITUDE: 15, // Increased fluctuations
+                    FLUCTUATION_PERIOD: 40,  // Faster cycles
+                    PEAK_PROBABILITY: 6,     // Increased pollution events
+                    NOISE_RANGE: 4,          // Increased noise
+                    PEAK_MIN: 20,            // Smaller but more frequent events
+                    PEAK_MAX: 80,            // Smaller but more frequent events
+                    PEAK_DURATION: { min: 4, max: 12 }, // Shorter peaks
+                    PLATEAU_PROBABILITY: 3,  // Reduced plateau
+                    PLATEAU_DURATION: { min: 1, max: 2 } // Shorter plateaus
+                };
+            
+            case 'SO2': // Sulfur Dioxide (ppb)
+                return {
+                    BASE_VALUE: 20,          // Safe baseline 20 ppb
+                    MIN_VALUE: 0,            // Minimum possible value
+                    MAX_VALUE: 800,          // Maximum sensor range
+                    SAFE_RANGE: { min: 0, max: 50 },        // 0-50 ppb: Safe
+                    CAUTION_RANGE: { min: 51, max: 200 },   // 51-200 ppb: Caution
+                    DANGER_RANGE: { min: 201, max: 500 },   // 201-500 ppb: Dangerous
+                    LETHAL_RANGE: { min: 501, max: 800 },   // 500+ ppb: Life-threatening
+                    BASE_DRIFT: 2.5,         // Increased drift
+                    FLUCTUATION_AMPLITUDE: 12, // Increased fluctuations
+                    FLUCTUATION_PERIOD: 35,  // Faster cycles
+                    PEAK_PROBABILITY: 4,     // Increased pollution events
+                    NOISE_RANGE: 3,          // Increased noise
+                    PEAK_MIN: 15,            // Smaller but more frequent events
+                    PEAK_MAX: 60,            // Smaller but more frequent events
+                    PEAK_DURATION: { min: 6, max: 18 }, // Shorter peaks
+                    PLATEAU_PROBABILITY: 4,  // Reduced plateau
+                    PLATEAU_DURATION: { min: 1, max: 3 } // Shorter plateaus
+                };
+        }
+    }
 
     // Generate random number within range
     getRandomFloat(min: number, max: number): number {
@@ -316,12 +478,20 @@ class GasSensorDataGenerator {
         return Math.random() * 100 < likelihood;
     }
 
-    // Clamp value between 0 and 1023
+    // Clamp value within gas-specific range
     clampValue(value: number): number {
-        return Math.min(1023, Math.max(0, Math.round(value)));
+        return Math.min(this.CONFIG.MAX_VALUE, Math.max(this.CONFIG.MIN_VALUE, Math.round(value)));
     }
 
-    // Generate sensor value
+    // Get danger level based on gas type and value
+    getDangerLevel(value: number): 'Safe' | 'Caution' | 'Dangerous' | 'Life-threatening' {
+        if (value >= this.CONFIG.LETHAL_RANGE.min) return 'Life-threatening';
+        if (value >= this.CONFIG.DANGER_RANGE.min) return 'Dangerous';
+        if (value >= this.CONFIG.CAUTION_RANGE.min) return 'Caution';
+        return 'Safe';
+    }
+
+    // Generate sensor value with gas-specific behavior
     generateSensorValue(): number {
         // Check for plateau behavior (static value periods)
         if (this.state.plateauDuration && this.state.plateauDuration > 0) {
@@ -329,22 +499,21 @@ class GasSensorDataGenerator {
             return this.state.lastValue || this.CONFIG.BASE_VALUE;
         }
         
-        // Base value drift (smoother and more predictable)
-        if (this.getRandomBool(30)) { // Only adjust base occasionally
+        // Base value drift (gas-specific)
+        if (this.getRandomBool(60)) { // Increased from 30% to 60% for more frequent changes
             this.state.baseValue += this.getNormalDistribution(0, this.CONFIG.BASE_DRIFT);
         }
         
         this.state.baseValue = this.clampValue(this.state.baseValue);
 
-        // Environmental fluctuations (smoother sine wave)
+        // Environmental fluctuations (gas-specific amplitude and period)
         const fluctuation = this.CONFIG.FLUCTUATION_AMPLITUDE * 
             Math.sin(2 * Math.PI * this.state.timeStep / this.CONFIG.FLUCTUATION_PERIOD);
         this.state.timeStep = (this.state.timeStep + 1) % this.CONFIG.FLUCTUATION_PERIOD;
 
-        // Gas peak detection and decay (smoother peaks)
+        // Gas pollution events (gas-specific peaks)
         let peakEffect = 0;
         if (this.state.peakDuration > 0) {
-            // Use quadratic function for smoother peak rise/fall
             const normalizedTime = 1 - (this.state.peakDuration / this.state.peakInitialDuration);
             peakEffect = this.state.activePeak * (1 - Math.pow(2 * normalizedTime - 1, 2));
             this.state.peakDuration--;
@@ -354,24 +523,21 @@ class GasSensorDataGenerator {
             this.state.peakDuration = this.state.peakInitialDuration;
         }
 
-        // Add trend-based movement (more predictable changes)
+        // Add trend-based movement (increased influence)
         if (this.state.lastValue !== null) {
-            // Adjust trend with some randomness
             this.state.trend = (1 - this.state.trendStrength) * this.state.trend + 
                               this.state.trendStrength * this.getRandomFloat(-1, 1);
         }
         
-        // Occasionally create plateaus for better run-length encoding
+        // Create plateaus for better compression (reduced frequency)
         if (this.state.lastValue !== null && this.getRandomBool(this.CONFIG.PLATEAU_PROBABILITY)) {
             this.state.plateauDuration = this.getRandomInt(this.CONFIG.PLATEAU_DURATION.min, this.CONFIG.PLATEAU_DURATION.max);
             return this.state.lastValue;
         }
 
-        // Combine components with reduced sensor noise
-        const noise = this.getRandomBool(50) ? 0 : this.getRandomFloat(-this.CONFIG.NOISE_RANGE, this.CONFIG.NOISE_RANGE);
-        
-        // Calculate raw value with all components
-        const trendComponent = this.state.lastValue !== null ? this.state.trend * 2 : 0;
+        // Combine components with gas-specific noise (increased trend influence)
+        const noise = this.getRandomBool(70) ? 0 : this.getRandomFloat(-this.CONFIG.NOISE_RANGE, this.CONFIG.NOISE_RANGE); // More frequent noise
+        const trendComponent = this.state.lastValue !== null ? this.state.trend * 4 : 0; // Increased from 2 to 4
         const rawValue = this.state.baseValue + fluctuation + peakEffect + noise + trendComponent;
         const finalValue = this.clampValue(rawValue);
         
@@ -388,6 +554,7 @@ class GasSensorDataGenerator {
     }
 
     // Properties for TypeScript
+    private gasType: 'CO' | 'NO2' | 'SO2';
     private CONFIG: any;
     private state: {
         baseValue: number;
@@ -440,7 +607,7 @@ export interface TelemetryData {
   ts?: number;             // Only when compression enabled (timestamp)
   
   // Latency tracking (for uncompressed data)
-  transmissionTimestamp?: number; // When data was transmitted (performance.now())
+  transmissionTimestamp?: number; // When data was transmitted (Date.now())
   processingLatency?: number;     // Time from transmission to processing (ms)
   
   // Compression Data (optional - only populated when compression is enabled and metrics are shown)
@@ -605,27 +772,28 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         return;
       }
       
-      // Set precise transmission timestamp right before writing to serial port
-      const transmissionTimestamp = performance.now();
-      const dataWithTimestamp = {
-        ...data,
-        transmissionTimestamp: transmissionTimestamp
-      };
-      
-      const jsonData = JSON.stringify(dataWithTimestamp) + '\n';
-      console.log('🚀 TRANSMISSION DEBUG:', {
-        transmissionTimestamp: transmissionTimestamp,
-        performanceNow: performance.now(),
-        dateNow: Date.now(),
-        dataKeys: Object.keys(dataWithTimestamp),
-        hasTransmissionTimestamp: 'transmissionTimestamp' in dataWithTimestamp
-      });
-      
       let writer = null;
       try {
         writer = port.writable.getWriter();
         const encoder = new TextEncoder();
+        
+        // Set transmission timestamp at the exact moment before writing to serial port
+        const transmissionTimestamp = Date.now();
+        const dataWithTimestamp = {
+          ...data,
+          transmissionTimestamp: transmissionTimestamp
+        };
+        
+        const jsonData = JSON.stringify(dataWithTimestamp) + '\n';
         const encodedData = encoder.encode(jsonData);
+        
+        console.log('🚀 TRANSMISSION DEBUG:', {
+          transmissionTimestamp: transmissionTimestamp,
+          performanceNow: performance.now(),
+          dateNow: Date.now(),
+          dataKeys: Object.keys(dataWithTimestamp),
+          hasTransmissionTimestamp: 'transmissionTimestamp' in dataWithTimestamp
+        });
         
         await writer.write(encodedData);
         
@@ -974,15 +1142,15 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     });
 
     // Initialize gas sensor generators with user's input values
-    const coGen = new GasSensorDataGenerator({
+    const coGen = new GasSensorDataGenerator('CO', {
       currentBase: parseFloat(simulationSettings.coLevel)
     });
 
-    const no2Gen = new GasSensorDataGenerator({
+    const no2Gen = new GasSensorDataGenerator('NO2', {
       currentBase: parseFloat(simulationSettings.no2Level)
     });
 
-    const so2Gen = new GasSensorDataGenerator({
+    const so2Gen = new GasSensorDataGenerator('SO2', {
       currentBase: parseFloat(simulationSettings.so2Level)
     });
 
@@ -1036,7 +1204,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     
     // Use setTimeout to ensure state updates are applied before starting interval
     setTimeout(() => {
-      const interval = setInterval(updateTelemetryData, 1000);
+      const interval = setInterval(updateTelemetryData, 1000); // 1000ms = 1Hz update rate
       setSimulationInterval(interval);
     }, 100); // Small delay to ensure React state updates are processed
   };

@@ -103,9 +103,9 @@ export function DataProcessor() {
                                 telemetryData.no2 || telemetryData.so2 || telemetryData.batt);
 
         if (isCompressed) {
-                  // COMPRESSED DATA: Decompress it
-        processedData = await decompressData(telemetryData);
-        processedData.dataSource = 'decompressed';
+          // COMPRESSED DATA: Decompress it
+          processedData = await decompressData(telemetryData);
+          processedData.dataSource = 'decompressed';
 
         console.log('🔄 DataProcessor: Compressed data processed with flightTime:', {
           inputFlightTime: telemetryData.flightTime,
@@ -157,7 +157,7 @@ export function DataProcessor() {
           console.log('📡 DataProcessor: Skipping dashboard update - data already processed by SerialTelemetryBridge');
           return;
         }
-        
+
         // Forward processed data to Dashboard
         setProcessedData(processedData);
         setLastUpdateTime(Date.now());

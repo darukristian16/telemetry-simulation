@@ -81,6 +81,67 @@ function ProgressBar({ value, colorClass }: ProgressBarProps) {
   );
 }
 
+// Generic Gas Progress Bar showing danger zones
+interface GasProgressBarProps {
+  value: number;
+  percentage: number;
+  gasType: 'co' | 'no2' | 'so2';
+}
+
+function GasProgressBar({ value, percentage, gasType }: GasProgressBarProps) {
+  const getColorBasedOnValue = (value: number, gasType: string) => {
+    switch(gasType) {
+      case 'co':
+        return value <= 9 ? '#10B981' : 
+               value <= 70 ? '#EAB308' : 
+               value <= 150 ? '#EF4444' : '#991B1B';
+      case 'no2':
+        return value <= 50 ? '#10B981' : 
+               value <= 200 ? '#EAB308' : 
+               value <= 5000 ? '#EF4444' : '#991B1B';
+      case 'so2':
+        return value <= 50 ? '#10B981' : 
+               value <= 500 ? '#EAB308' : 
+               value <= 5000 ? '#EF4444' : '#991B1B';
+      default:
+        return '#10B981';
+    }
+  };
+
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-600 relative">
+      {/* Background danger zones */}
+      <div className="absolute inset-0 flex">
+        {/* Safe zone (0-25% of bar) */}
+        <div className="w-1/4 bg-green-500 opacity-30"></div>
+        {/* Caution zone (25-50% of bar) */}
+        <div className="w-1/4 bg-yellow-500 opacity-30"></div>
+        {/* Dangerous zone (50-75% of bar) */}
+        <div className="w-1/4 bg-red-500 opacity-30"></div>
+        {/* Life-threatening zone (75-100% of bar) */}
+        <div className="w-1/4 bg-red-800 opacity-30"></div>
+      </div>
+      
+      {/* Current value indicator */}
+      <div
+        className="h-full rounded-full relative z-10"
+        style={{ 
+          width: `${percentage}%`,
+          background: getColorBasedOnValue(value, gasType)
+        }}
+      />
+      
+      {/* Zone dividers */}
+      <div className="absolute inset-0 flex">
+        <div className="w-1/4 border-r border-gray-400 opacity-50"></div>
+        <div className="w-1/4 border-r border-gray-400 opacity-50"></div>
+        <div className="w-1/4 border-r border-gray-400 opacity-50"></div>
+        <div className="w-1/4"></div>
+      </div>
+    </div>
+  );
+}
+
 // Helper to format flight time
 function formatFlightTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -179,12 +240,13 @@ export default function DashboardPage() {
     return "Poor";
   };
 
-  // Get latency performance text
+  // Get latency performance text with more realistic ranges
   const getLatencyPerformanceText = (latency: number) => {
-    if (latency < 5) return "Excellent";
-    if (latency < 15) return "Good";
-    if (latency < 30) return "Fair";
-    return "Poor";
+    if (latency < 10) return "Excellent";
+    if (latency < 50) return "Good";
+    if (latency < 200) return "Fair";
+    if (latency < 500) return "Poor";
+    return "Very High";
   };
 
   // Format coordinates for display
@@ -199,22 +261,131 @@ export default function DashboardPage() {
     return `${degrees}°${minutes}'${seconds}"${direction}`;
   };
 
+  // Function to get CO danger level and colors
+  const getCODangerLevel = (coPpm: number) => {
+    if (coPpm <= 9) {
+      return { 
+        level: "Safe", 
+        color: "bg-green-500", 
+        textColor: "text-green-400",
+        percentage: Math.min(100, (coPpm / 9) * 25) // 0-25% of bar for 0-9ppm
+      };
+    } else if (coPpm <= 70) {
+      return { 
+        level: "Caution", 
+        color: "bg-yellow-500", 
+        textColor: "text-yellow-400",
+        percentage: 25 + Math.min(100, ((coPpm - 9) / (70 - 9)) * 25) // 25-50% of bar for 10-70ppm
+      };
+    } else if (coPpm <= 150) {
+      return { 
+        level: "Dangerous", 
+        color: "bg-red-500", 
+        textColor: "text-red-400",
+        percentage: 50 + Math.min(100, ((coPpm - 70) / (150 - 70)) * 25) // 50-75% of bar for 71-150ppm
+      };
+    } else {
+      return { 
+        level: "Life-threatening", 
+        color: "bg-red-800", 
+        textColor: "text-red-600",
+        percentage: 75 + Math.min(100, ((coPpm - 150) / 100) * 25) // 75-100% of bar for 151ppm+
+      };
+    }
+  };
+
+  // Function to get NO2 danger level and colors
+  const getNO2DangerLevel = (no2Ppb: number) => {
+    if (no2Ppb <= 50) {
+      return { 
+        level: "Safe", 
+        color: "bg-green-500", 
+        textColor: "text-green-400",
+        percentage: Math.min(100, (no2Ppb / 50) * 25) // 0-25% of bar for 0-50ppb
+      };
+    } else if (no2Ppb <= 200) {
+      return { 
+        level: "Caution", 
+        color: "bg-yellow-500", 
+        textColor: "text-yellow-400",
+        percentage: 25 + Math.min(100, ((no2Ppb - 50) / (200 - 50)) * 25) // 25-50% of bar for 51-200ppb
+      };
+    } else if (no2Ppb <= 5000) {
+      return { 
+        level: "Dangerous", 
+        color: "bg-red-500", 
+        textColor: "text-red-400",
+        percentage: 50 + Math.min(100, ((no2Ppb - 200) / (5000 - 200)) * 25) // 50-75% of bar for 201-5000ppb
+      };
+    } else {
+      return { 
+        level: "Life-threatening", 
+        color: "bg-red-800", 
+        textColor: "text-red-600",
+        percentage: 75 + Math.min(100, ((no2Ppb - 5000) / 1000) * 25) // 75-100% of bar for >5000ppb
+      };
+    }
+  };
+
+  // Function to get SO2 danger level and colors
+  const getSO2DangerLevel = (so2Ppb: number) => {
+    if (so2Ppb <= 50) {
+      return { 
+        level: "Safe", 
+        color: "bg-green-500", 
+        textColor: "text-green-400",
+        percentage: Math.min(100, (so2Ppb / 50) * 25) // 0-25% of bar for 0-50ppb
+      };
+    } else if (so2Ppb <= 500) {
+      return { 
+        level: "Caution", 
+        color: "bg-yellow-500", 
+        textColor: "text-yellow-400",
+        percentage: 25 + Math.min(100, ((so2Ppb - 50) / (500 - 50)) * 25) // 25-50% of bar for 51-500ppb
+      };
+    } else if (so2Ppb <= 5000) {
+      return { 
+        level: "Dangerous", 
+        color: "bg-red-500", 
+        textColor: "text-red-400",
+        percentage: 50 + Math.min(100, ((so2Ppb - 500) / (5000 - 500)) * 25) // 50-75% of bar for 501-5000ppb
+      };
+    } else {
+      return { 
+        level: "Life-threatening", 
+        color: "bg-red-800", 
+        textColor: "text-red-600",
+        percentage: 75 + Math.min(100, ((so2Ppb - 5000) / 1000) * 25) // 75-100% of bar for >5000ppb
+      };
+    }
+  };
+
   // Gas sensor data with calculated percentages for visualization
+  const coDangerLevel = getCODangerLevel(processedData?.coLevel || 0);
+  const no2DangerLevel = getNO2DangerLevel(processedData?.no2Level || 0);
+  const so2DangerLevel = getSO2DangerLevel(processedData?.so2Level || 0);
+  
   const gasSensorData = {
     co: { 
       value: processedData?.coLevel || 0, 
-      percentage: Math.min(100, ((processedData?.coLevel || 0) / 5) * 100), // Assuming 5 PPM is max
-      color: "bg-blue-500" 
+      percentage: coDangerLevel.percentage,
+      color: coDangerLevel.color,
+      dangerLevel: coDangerLevel.level,
+      textColor: coDangerLevel.textColor
     },
     no2: { 
       value: processedData?.no2Level || 0, 
-      percentage: Math.min(100, ((processedData?.no2Level || 0) / 200) * 100), // Assuming 200 PPM is max
-      color: "bg-purple-500" 
+      percentage: no2DangerLevel.percentage,
+      color: no2DangerLevel.color,
+      dangerLevel: no2DangerLevel.level,
+      textColor: no2DangerLevel.textColor
     },
     so2: { 
       value: processedData?.so2Level || 0, 
-      percentage: Math.min(100, ((processedData?.so2Level || 0) / 20) * 100), // Assuming 20 PPM is max
-      color: "bg-orange-500" 
+      percentage: so2DangerLevel.percentage,
+      color: so2DangerLevel.color,
+      dangerLevel: so2DangerLevel.level,
+      textColor: so2DangerLevel.textColor
     },
   };
 
@@ -294,20 +465,23 @@ export default function DashboardPage() {
     return dataStats.compressedPackets > 0 ? 3.5 : 1; // Typical compression ratio for telemetry data
   })();
   
-  // Get processing latency from actual transmission-to-processing time
-  const processingLatency = processedData?.processingLatency || dataStats.averageLatency || 0;
-
-  // Calculate latency color based on performance
-  const latencyColorClass = processingLatency < 5 
-    ? "text-green-400" 
-    : processingLatency < 15 
-      ? "text-yellow-400" 
-      : processingLatency < 30
-        ? "text-orange-400"
-        : "text-red-400";
-
   // Improved status logic - show "Active" if data was received recently (within last 5 seconds)
   const isRecentlyActive = lastUpdateTime && (currentTime - lastUpdateTime) < 5000;
+  
+  // Get processing latency from actual transmission-to-processing time
+  // Only show latency when actively receiving data, otherwise show 0ms
+  const processingLatency = (isReceivingData || isRecentlyActive) 
+    ? (processedData?.processingLatency || dataStats.averageLatency || 0)
+    : 0;
+
+  // Calculate latency color based on performance with realistic ranges
+  const latencyColorClass = processingLatency < 10 
+    ? "text-green-400" 
+    : processingLatency < 50 
+      ? "text-yellow-400" 
+      : processingLatency < 200
+        ? "text-orange-400"
+        : "text-red-400";
   const currentStatus = isReceivingData || isRecentlyActive ? "Active" : "Standby";
   const statusColorClass = isReceivingData || isRecentlyActive ? "text-green-400" : "text-yellow-400";
 
@@ -362,7 +536,7 @@ export default function DashboardPage() {
                 iconColorClass="text-purple-400"
               />
               <StatCard
-                title="Processing Latency"
+                title="Latency"
                 value={`${processingLatency.toFixed(1)}ms`}
                 secondaryText={getLatencyPerformanceText(processingLatency)}
                 icon={Clock}
@@ -428,13 +602,6 @@ export default function DashboardPage() {
                       className="absolute top-0 bottom-0 w-1 bg-white shadow-lg rounded-full"
                       style={{ left: `${temperaturePosition}%`, transform: 'translateX(-50%)' }}
                     />
-                    {/* Temperature value indicator */}
-                    <div 
-                      className="absolute -top-6 text-xs text-white font-semibold"
-                      style={{ left: `${temperaturePosition}%`, transform: 'translateX(-50%)' }}
-                    >
-                      {temperature.toFixed(1)}°C
-                    </div>
                   </div>
                   <p className="text-center text-xl font-semibold text-white">{(processedData?.temperature || 0).toFixed(1)}°C</p>
                 </div>
@@ -446,23 +613,61 @@ export default function DashboardPage() {
                     <Wind className="h-5 w-5 text-cyan-400" />
                   </div>
                   <div className="space-y-3 text-sm">
-                    {/* CO */}
+                    {/* CO with danger level indicator */}
+                    <div className="space-y-1">
                     <div className="flex items-center gap-3">
                       <span className="w-12 shrink-0 text-gray-400">CO <span className="text-xs">(PPM)</span></span>
-                      <ProgressBar value={gasSensorData.co.percentage} colorClass={gasSensorData.co.color} />
+                        <GasProgressBar value={gasSensorData.co.value} percentage={gasSensorData.co.percentage} gasType="co" />
                       <span className="w-12 shrink-0 text-right text-white">{gasSensorData.co.value.toFixed(1)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">Danger Level:</span>
+                        <span className={gasSensorData.co.textColor}>{gasSensorData.co.dangerLevel}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>0-9</span>
+                        <span>10-70</span>
+                        <span>71-150</span>
+                        <span>151+</span>
+                      </div>
                     </div>
-                    {/* NO2 */}
+                    
+                    {/* NO2 with danger level indicator */}
+                    <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <span className="w-12 shrink-0 text-gray-400">NO₂ <span className="text-xs">(PPM)</span></span>
-                      <ProgressBar value={gasSensorData.no2.percentage} colorClass={gasSensorData.no2.color} />
+                        <span className="w-12 shrink-0 text-gray-400">NO₂ <span className="text-xs">(PPB)</span></span>
+                        <GasProgressBar value={gasSensorData.no2.value} percentage={gasSensorData.no2.percentage} gasType="no2" />
                       <span className="w-12 shrink-0 text-right text-white">{gasSensorData.no2.value.toFixed(1)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">Danger Level:</span>
+                        <span className={gasSensorData.no2.textColor}>{gasSensorData.no2.dangerLevel}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>0-50</span>
+                        <span>51-200</span>
+                        <span>201-5000</span>
+                        <span>5000+</span>
+                      </div>
                     </div>
-                    {/* SO2 */}
+                    
+                    {/* SO2 with danger level indicator */}
+                    <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <span className="w-12 shrink-0 text-gray-400">SO₂ <span className="text-xs">(PPM)</span></span>
-                      <ProgressBar value={gasSensorData.so2.percentage} colorClass={gasSensorData.so2.color} />
+                        <span className="w-12 shrink-0 text-gray-400">SO₂ <span className="text-xs">(PPB)</span></span>
+                        <GasProgressBar value={gasSensorData.so2.value} percentage={gasSensorData.so2.percentage} gasType="so2" />
                       <span className="w-12 shrink-0 text-right text-white">{gasSensorData.so2.value.toFixed(1)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">Danger Level:</span>
+                        <span className={gasSensorData.so2.textColor}>{gasSensorData.so2.dangerLevel}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>0-50</span>
+                        <span>51-500</span>
+                        <span>501-5000</span>
+                        <span>5000+</span>
+                      </div>
                     </div>
                   </div>
                 </div>
