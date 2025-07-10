@@ -8,6 +8,16 @@ import { TemperatureDecompressor } from '@/lib/compression/TemperatureDecompress
 import { GasSensorDecompressor } from '@/lib/compression/GasSensorDecompressor';
 import { BatteryDecompressor } from '@/lib/compression/BatteryDecompressor';
 
+// Create persistent decompressor instances (maintain state between packets)
+const persistentDecompressors = {
+  gnss: new GNSSDecompressor(),
+  temperature: new TemperatureDecompressor(), 
+  co: new GasSensorDecompressor('CO'),
+  no2: new GasSensorDecompressor('NO2'),
+  so2: new GasSensorDecompressor('SO2'),
+  battery: new BatteryDecompressor()
+};
+
 // Function to parse NMEA $GPGGA sentence and extract coordinates
 function parseNMEA(nmeaString: string): { latitude: number; longitude: number; altitude: number } {
   // Default values
@@ -106,11 +116,17 @@ export function DataProcessor() {
           // COMPRESSED DATA: Decompress it
           processedData = await decompressData(telemetryData);
           processedData.dataSource = 'decompressed';
+          
+          // Pass through compression metrics if available
+          if (telemetryData.compressionMetrics) {
+            processedData.compressionMetrics = telemetryData.compressionMetrics;
+          }
 
         console.log('🔄 DataProcessor: Compressed data processed with flightTime:', {
           inputFlightTime: telemetryData.flightTime,
           outputFlightTime: processedData.flightTime,
           hasFlightTime: !!telemetryData.flightTime,
+          compressionRatio: processedData.compressionMetrics?.compressionRatio,
           source: 'DataProcessor-Compressed'
         });
         } else {
@@ -159,6 +175,7 @@ export function DataProcessor() {
         }
 
         // Forward processed data to Dashboard
+        console.log('🔋 DataProcessor: Sending battery percentage to dashboard:', processedData.batteryPercentage);
         setProcessedData(processedData);
         setLastUpdateTime(Date.now());
         
@@ -183,16 +200,13 @@ export function DataProcessor() {
 
 // Real decompression function using actual decompression algorithms
 async function decompressData(compressedData: any): Promise<ProcessedTelemetryData> {
+  const decompressionStartTime = performance.now();
   const timestamp = compressedData.ts || Date.now();
   const flightTime = compressedData.time || 0;
 
-  // Initialize decompressors
-  const gnssDecompressor = new GNSSDecompressor();
-  const temperatureDecompressor = new TemperatureDecompressor();
-  const coDecompressor = new GasSensorDecompressor('CO');
-  const no2Decompressor = new GasSensorDecompressor('NO2');
-  const so2Decompressor = new GasSensorDecompressor('SO2');
-  const batteryDecompressor = new BatteryDecompressor();
+  // Use persistent decompressors (maintain state between packets)
+  const { gnss: gnssDecompressor, temperature: temperatureDecompressor, co: coDecompressor, 
+          no2: no2Decompressor, so2: so2Decompressor, battery: batteryDecompressor } = persistentDecompressors;
 
   // Default values (in case decompression fails or buffer is empty)
   let latitude = -33.8688;
@@ -211,7 +225,7 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
     // Decompress GNSS data
     if (compressedData.gnss) {
       const gnssBuffer = Buffer.from(compressedData.gnss, 'base64');
-      const gnssData = gnssDecompressor.decompress(gnssBuffer);
+                  const gnssData = gnssDecompressor.decompressData(gnssBuffer);
       if (gnssData) {
         latitude = gnssData.latitude;
         longitude = gnssData.longitude;
@@ -258,13 +272,18 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
     // Decompress battery data
     if (compressedData.batt) {
       const battBuffer = Buffer.from(compressedData.batt, 'base64');
-      const battData = batteryDecompressor.decompress(battBuffer);
+                  const battData = batteryDecompressor.decompressData(battBuffer);
       if (battData) {
         voltage = battData.voltage;
         current = battData.current;
         batteryPercentage = battData.percentage;
         batteryStatus = battData.status;
+        console.log('🔋 DataProcessor: Battery decompressed successfully:', { voltage, current, batteryPercentage, batteryStatus });
+      } else {
+        console.log('🔋 DataProcessor: Battery decompression failed, using default:', batteryPercentage);
       }
+    } else {
+      console.log('🔋 DataProcessor: No battery data to decompress, using default:', batteryPercentage);
     }
 
   } catch (error) {
@@ -272,7 +291,10 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
     // Continue with default values if decompression fails
   }
 
-  return {
+  const decompressionEndTime = performance.now();
+  const decompressionTime = decompressionEndTime - decompressionStartTime;
+
+  const finalResult = {
     latitude,
     longitude,
     altitude,
@@ -286,6 +308,10 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
     batteryStatus,
     timestamp,
     flightTime,
-    dataSource: 'decompressed'
+    dataSource: 'decompressed',
+    decompressionTime
   };
+
+  console.log('🔋 DataProcessor: Final battery percentage being returned:', finalResult.batteryPercentage);
+  return finalResult;
 } 

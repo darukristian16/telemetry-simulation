@@ -28,7 +28,12 @@ export interface ProcessedTelemetryData {
   // Processing metadata
   dataSource: 'raw' | 'decompressed'; // Indicates if data was compressed before processing
   processingTime?: number; // Time taken to process/decompress data (ms)
+  decompressionTime?: number; // Time taken specifically for decompression (ms)
   processingLatency?: number; // Time from transmission to processing (ms)
+  compressionMetrics?: {
+    compressionRatio: number;
+    processingTime: number; // Time taken for compression (ms)
+  };
 }
 
 // Define the context interface

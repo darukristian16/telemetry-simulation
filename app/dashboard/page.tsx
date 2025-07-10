@@ -450,7 +450,7 @@ export default function DashboardPage() {
   // Position for the map
   const mapPosition: [number, number] = [processedData?.latitude || 0, processedData?.longitude || 0];
 
-  // Get compression metrics - fix calculation for raw vs compressed data
+  // Get compression metrics - use actual compression ratio from processed data
   const compressionRatio = (() => {
     if (!processedData) return 1;
     
@@ -459,20 +459,47 @@ export default function DashboardPage() {
       return 1;
     }
     
-    // For compressed data, show how much compression benefit we're getting
-    // This would ideally come from actual compression metrics
-    // For now, use a reasonable estimate based on typical telemetry compression
-    return dataStats.compressedPackets > 0 ? 3.5 : 1; // Typical compression ratio for telemetry data
+    // For compressed data, use the actual compression ratio from metrics
+    if (processedData.compressionMetrics?.compressionRatio) {
+      console.log('📊 Using actual compression ratio from metrics:', processedData.compressionMetrics.compressionRatio);
+      return processedData.compressionMetrics.compressionRatio;
+    }
+    
+    // Fallback to estimate if metrics not available
+    console.log('📊 Using fallback compression ratio estimate (3.5)');
+    return dataStats.compressedPackets > 0 ? 3.5 : 1;
   })();
   
   // Improved status logic - show "Active" if data was received recently (within last 5 seconds)
   const isRecentlyActive = lastUpdateTime && (currentTime - lastUpdateTime) < 5000;
   
   // Get processing latency from actual transmission-to-processing time
-  // Only show latency when actively receiving data, otherwise show 0ms
-  const processingLatency = (isReceivingData || isRecentlyActive) 
-    ? (processedData?.processingLatency || dataStats.averageLatency || 0)
-    : 0;
+  // For compressed data: latency + compression time + decompression time
+  // For raw data: just the base latency
+  const processingLatency = (() => {
+    if (!isReceivingData && !isRecentlyActive) return 0;
+    
+    const baseLatency = processedData?.processingLatency || dataStats.averageLatency || 0;
+    
+    // For compressed data, add compression and decompression times
+    if (processedData?.dataSource === 'decompressed') {
+      const compressionTime = processedData?.compressionMetrics?.processingTime || 0;
+      const decompressionTime = processedData?.decompressionTime || 0;
+      const totalLatency = baseLatency + compressionTime + decompressionTime;
+      
+      console.log('⏱️ Total latency calculation for compressed data:', {
+        baseLatency: baseLatency.toFixed(2) + 'ms',
+        compressionTime: compressionTime.toFixed(2) + 'ms',
+        decompressionTime: decompressionTime.toFixed(2) + 'ms',
+        totalLatency: totalLatency.toFixed(2) + 'ms'
+      });
+      
+      return totalLatency;
+    }
+    
+    // For raw data, just return base latency
+    return baseLatency;
+  })();
 
   // Calculate latency color based on performance with realistic ranges
   const latencyColorClass = processingLatency < 10 

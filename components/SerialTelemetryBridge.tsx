@@ -1,9 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useSerialStore } from '@/lib/store';
 import { useTelemetry } from '@/context/TelemetryContext';
-import { useTerminalDashboard, ProcessedTelemetryData } from '@/context/TerminalDashboardContext';
+import { useTerminalDashboard } from '@/context/TerminalDashboardContext';
+import { ProcessedTelemetryData } from '@/context/TerminalDashboardContext';
+import { GNSSDecompressor } from '@/lib/compression/GNSSDecompressor';
+import { TemperatureDecompressor } from '@/lib/compression/TemperatureDecompressor';
+import { GasSensorDecompressor } from '@/lib/compression/GasSensorDecompressor';
+import { BatteryDecompressor } from '@/lib/compression/BatteryDecompressor';
+
+// Create persistent decompressor instances (maintain state between packets)
+const persistentDecompressors = {
+  gnss: new GNSSDecompressor(),
+  temperature: new TemperatureDecompressor(), 
+  co: new GasSensorDecompressor('CO'),
+  no2: new GasSensorDecompressor('NO2'),
+  so2: new GasSensorDecompressor('SO2'),
+  battery: new BatteryDecompressor()
+};
 
 // Function to parse NMEA $GPGGA sentence and extract coordinates
 function parseNMEA(nmeaString: string): { latitude: number; longitude: number; altitude: number } {
@@ -101,10 +116,25 @@ function processSerialTelemetryData(telemetryData: any, flightStartTime: number 
                           telemetryData.no2 || telemetryData.so2 || telemetryData.batt);
   
   if (isCompressed) {
-    // For now, return default values for compressed data
-    // TODO: Add decompression logic if needed
-    console.log('📝 Compressed data detected, using default values for now');
-    return {
+    // COMPRESSED DATA: Decompress it properly
+    console.log('📝 Compressed data detected, decompressing...', {
+      telemetryDataKeys: Object.keys(telemetryData),
+      hasGnss: !!telemetryData.gnss,
+      hasTemp: !!telemetryData.temp,
+      hasCo: !!telemetryData.co,
+      hasNo2: !!telemetryData.no2,
+      hasSo2: !!telemetryData.so2,
+      hasBatt: !!telemetryData.batt
+    });
+    
+    const decompressionStartTime = performance.now();
+    
+    // Use persistent decompressors (maintain state between packets)
+    const { gnss: gnssDecompressor, temperature: temperatureDecompressor, co: coDecompressor, 
+            no2: no2Decompressor, so2: so2Decompressor, battery: batteryDecompressor } = persistentDecompressors;
+
+    // Get last known values from global state or use defaults
+    const lastKnownValues = (processSerialTelemetryData as any).lastKnownValues || {
       latitude: -33.8688,
       longitude: 151.2093,
       altitude: 100,
@@ -115,12 +145,278 @@ function processSerialTelemetryData(telemetryData: any, flightStartTime: number 
       voltage: 3.7,
       current: 1.5,
       batteryPercentage: 75,
-      batteryStatus: 'Charging',
+      batteryStatus: 'Discharging'
+    };
+
+    // Start with last known values
+    let latitude = lastKnownValues.latitude;
+    let longitude = lastKnownValues.longitude;
+    let altitude = lastKnownValues.altitude;
+    let temperature = lastKnownValues.temperature;
+    let coLevel = lastKnownValues.coLevel;
+    let no2Level = lastKnownValues.no2Level;
+    let so2Level = lastKnownValues.so2Level;
+    let voltage = lastKnownValues.voltage;
+    let current = lastKnownValues.current;
+    let batteryPercentage = lastKnownValues.batteryPercentage;
+    let batteryStatus = lastKnownValues.batteryStatus;
+
+    let decompressedCount = 0;
+    let totalFields = 0;
+    let emptyBufferCount = 0;
+
+    try {
+      // Decompress GNSS data
+      if (telemetryData.gnss) {
+        totalFields++;
+        console.log('🛰️ Attempting GNSS decompression...', {
+          base64Length: telemetryData.gnss.length,
+          base64Preview: telemetryData.gnss.substring(0, 20) + '...'
+        });
+        try {
+          const gnssBuffer = Buffer.from(telemetryData.gnss, 'base64');
+          console.log('🛰️ GNSS buffer created:', { bufferLength: gnssBuffer.length });
+          
+          if (gnssBuffer.length === 0) {
+            // Empty buffer - compression skipped this packet, keep last known values
+            emptyBufferCount++;
+            console.log('📦 GNSS buffer is empty, keeping last known values:', { latitude, longitude, altitude });
+          } else {
+            const gnssData = gnssDecompressor.decompressData(gnssBuffer);
+            if (gnssData) {
+              latitude = gnssData.latitude;
+              longitude = gnssData.longitude;
+              altitude = gnssData.altitude;
+              decompressedCount++;
+              console.log('✅ GNSS decompressed successfully:', { latitude, longitude, altitude });
+            } else {
+              console.warn('⚠️ GNSS decompression returned null/undefined, keeping last known values');
+            }
+          }
+        } catch (gnssError) {
+          console.error('❌ GNSS decompression failed:', gnssError);
+        }
+      }
+
+      // Decompress temperature data
+      if (telemetryData.temp) {
+        totalFields++;
+        console.log('🌡️ Attempting temperature decompression...', {
+          base64Length: telemetryData.temp.length,
+          base64Preview: telemetryData.temp.substring(0, 20) + '...'
+        });
+        try {
+          const tempBuffer = Buffer.from(telemetryData.temp, 'base64');
+          console.log('🌡️ Temperature buffer created:', { bufferLength: tempBuffer.length });
+          
+          if (tempBuffer.length === 0) {
+            // Empty buffer - compression skipped this packet, keep last known value
+            emptyBufferCount++;
+            console.log('📦 Temperature buffer is empty, keeping last known value:', temperature);
+          } else {
+            const tempData = temperatureDecompressor.decompress(tempBuffer);
+            if (tempData) {
+              temperature = tempData.temperature;
+              decompressedCount++;
+              console.log('✅ Temperature decompressed successfully:', temperature);
+            } else {
+              console.warn('⚠️ Temperature decompression returned null/undefined, keeping last known value');
+            }
+          }
+        } catch (tempError) {
+          console.error('❌ Temperature decompression failed:', tempError);
+        }
+      }
+
+      // Decompress CO data
+      if (telemetryData.co) {
+        totalFields++;
+        console.log('💨 Attempting CO decompression...', {
+          base64Length: telemetryData.co.length,
+          base64Preview: telemetryData.co.substring(0, 20) + '...'
+        });
+        try {
+          const coBuffer = Buffer.from(telemetryData.co, 'base64');
+          console.log('💨 CO buffer created:', { bufferLength: coBuffer.length });
+          
+          if (coBuffer.length === 0) {
+            // Empty buffer - compression skipped this packet, keep last known value
+            emptyBufferCount++;
+            console.log('📦 CO buffer is empty, keeping last known value:', coLevel);
+          } else {
+            const coData = coDecompressor.decompress(coBuffer);
+            if (coData) {
+              coLevel = coData.sensorValue;
+              decompressedCount++;
+              console.log('✅ CO decompressed successfully:', coLevel);
+            } else {
+              console.warn('⚠️ CO decompression returned null/undefined, keeping last known value');
+            }
+          }
+        } catch (coError) {
+          console.error('❌ CO decompression failed:', coError);
+        }
+      }
+
+      // Decompress NO2 data
+      if (telemetryData.no2) {
+        totalFields++;
+        console.log('💨 Attempting NO2 decompression...', {
+          base64Length: telemetryData.no2.length,
+          base64Preview: telemetryData.no2.substring(0, 20) + '...'
+        });
+        try {
+          const no2Buffer = Buffer.from(telemetryData.no2, 'base64');
+          console.log('💨 NO2 buffer created:', { bufferLength: no2Buffer.length });
+          
+          if (no2Buffer.length === 0) {
+            // Empty buffer - compression skipped this packet, keep last known value
+            emptyBufferCount++;
+            console.log('📦 NO2 buffer is empty, keeping last known value:', no2Level);
+          } else {
+            const no2Data = no2Decompressor.decompress(no2Buffer);
+            if (no2Data) {
+              no2Level = no2Data.sensorValue;
+              decompressedCount++;
+              console.log('✅ NO2 decompressed successfully:', no2Level);
+            } else {
+              console.warn('⚠️ NO2 decompression returned null/undefined, keeping last known value');
+            }
+          }
+        } catch (no2Error) {
+          console.error('❌ NO2 decompression failed:', no2Error);
+        }
+      }
+
+      // Decompress SO2 data
+      if (telemetryData.so2) {
+        totalFields++;
+        console.log('💨 Attempting SO2 decompression...', {
+          base64Length: telemetryData.so2.length,
+          base64Preview: telemetryData.so2.substring(0, 20) + '...'
+        });
+        try {
+          const so2Buffer = Buffer.from(telemetryData.so2, 'base64');
+          console.log('💨 SO2 buffer created:', { bufferLength: so2Buffer.length });
+          
+          if (so2Buffer.length === 0) {
+            // Empty buffer - compression skipped this packet, keep last known value
+            emptyBufferCount++;
+            console.log('📦 SO2 buffer is empty, keeping last known value:', so2Level);
+          } else {
+            const so2Data = so2Decompressor.decompress(so2Buffer);
+            if (so2Data) {
+              so2Level = so2Data.sensorValue;
+              decompressedCount++;
+              console.log('✅ SO2 decompressed successfully:', so2Level);
+            } else {
+              console.warn('⚠️ SO2 decompression returned null/undefined, keeping last known value');
+            }
+          }
+        } catch (so2Error) {
+          console.error('❌ SO2 decompression failed:', so2Error);
+        }
+      }
+
+      // Decompress battery data
+      if (telemetryData.batt) {
+        totalFields++;
+        console.log('🔋 Attempting battery decompression...', {
+          base64Length: telemetryData.batt.length,
+          base64Preview: telemetryData.batt.substring(0, 20) + '...'
+        });
+        try {
+          const battBuffer = Buffer.from(telemetryData.batt, 'base64');
+          console.log('🔋 Battery buffer created:', { bufferLength: battBuffer.length });
+          
+          if (battBuffer.length === 0) {
+            // Empty buffer - compression skipped this packet, keep last known values
+            emptyBufferCount++;
+            console.log('📦 Battery buffer is empty, keeping last known values:', { voltage, current, batteryPercentage, batteryStatus });
+          } else {
+            const battData = batteryDecompressor.decompressData(battBuffer);
+            if (battData) {
+              voltage = battData.voltage;
+              current = battData.current;
+              batteryPercentage = battData.percentage;
+              batteryStatus = battData.status;
+              decompressedCount++;
+              console.log('✅ Battery decompressed successfully:', { voltage, current, batteryPercentage, batteryStatus });
+              console.log('🔋 Battery percentage updated to:', batteryPercentage, 'from default', lastKnownValues.batteryPercentage);
+            } else {
+              console.warn('⚠️ Battery decompression returned null/undefined, keeping last known values');
+              console.log('🔋 Battery percentage kept at default:', batteryPercentage);
+            }
+          }
+        } catch (battError) {
+          console.error('❌ Battery decompression failed:', battError);
+        }
+      }
+
+      console.log('📊 Decompression Summary:', {
+        totalFields,
+        decompressedCount,
+        emptyBufferCount,
+        successRate: totalFields > 0 ? `${((decompressedCount / totalFields) * 100).toFixed(1)}%` : '0%',
+        emptyBufferRate: totalFields > 0 ? `${((emptyBufferCount / totalFields) * 100).toFixed(1)}%` : '0%',
+        usingLastKnownValues: decompressedCount === 0 && emptyBufferCount > 0
+      });
+
+      if (decompressedCount > 0) {
+        console.log('✅ Serial compressed data successfully decompressed');
+      } else if (emptyBufferCount > 0) {
+        console.log('📦 Using last known values due to empty compression buffers');
+      } else {
+        console.warn('⚠️ No compressed data was successfully decompressed, using default values');
+      }
+
+      // Save current values as last known values for next time
+      (processSerialTelemetryData as any).lastKnownValues = {
+        latitude,
+        longitude,
+        altitude,
+        temperature,
+        coLevel,
+        no2Level,
+        so2Level,
+        voltage,
+        current,
+        batteryPercentage,
+        batteryStatus
+      };
+      
+    } catch (error) {
+      console.error('❌ Error during serial data decompression:', error);
+      // Continue with default values if decompression fails
+    }
+
+    const decompressionEndTime = performance.now();
+    const decompressionTime = decompressionEndTime - decompressionStartTime;
+    
+    console.log('⏱️ SerialTelemetryBridge decompression time:', decompressionTime.toFixed(2) + 'ms');
+
+    const finalResult = {
+      latitude,
+      longitude,
+      altitude,
+      temperature,
+      coLevel,
+      no2Level,
+      so2Level,
+      voltage,
+      current,
+      batteryPercentage,
+      batteryStatus,
       timestamp: telemetryData.ts || Date.now(),
       flightTime: flightTime,
       dataSource: 'decompressed',
-      processingLatency
+      processingLatency,
+      compressionMetrics: telemetryData.compressionMetrics, // Pass through compression metrics if available
+      decompressionTime // Actual decompression time measured
     };
+
+    console.log('🔋 Final battery percentage being sent to dashboard:', finalResult.batteryPercentage);
+    return finalResult;
   } else {
     // Process raw data
     const nmeaData = parseNMEA(telemetryData.gnss || '');
@@ -424,6 +720,7 @@ export function SerialTelemetryBridge() {
             });
             
             setIsReceivingData(true);
+            console.log('🔋 SerialTelemetryBridge: Sending battery percentage to dashboard:', processedData.batteryPercentage);
             setProcessedData(processedData);
             setLastUpdateTime(Date.now());
             

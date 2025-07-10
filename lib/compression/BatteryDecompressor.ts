@@ -6,169 +6,44 @@ interface BatteryData {
 }
 
 export class BatteryDecompressor {
-  // State tracking (mirrors compressor state)
+  // Enhanced state tracking
   private lastVoltage: number | null = null;
   private lastCurrent: number | null = null;
   private lastPercentage: number | null = null;
   private lastStatus: string | null = null;
   
-  // Quantization settings (must match compressor)
-  private readonly voltageQuantization = 0.001; // 1mV precision
-  private readonly currentQuantization = 0.001; // 1mA precision  
-  private readonly percentageQuantization = 0.1; // 0.1% precision
+  // Compression settings (must match compressor)
+  private readonly voltagePrecision = 100; // 0.01V precision
+  private readonly currentPrecision = 100; // 0.01A precision 
+  private readonly percentagePrecision = 20; // 0.05% precision
 
   constructor() {
     this.reset();
   }
 
-  // Reset decompressor state
   reset(): void {
     this.lastVoltage = null;
     this.lastCurrent = null;
     this.lastPercentage = null;
     this.lastStatus = null;
+    console.log('🔋 BatteryDecompressor reset - conservative mode');
   }
 
-  // Main decompression method
-  decompress(buffer: Buffer): BatteryData | null {
-    if (!buffer || buffer.length === 0) {
-      return null; // Empty buffer (RLE continuation)
-    }
-
-    try {
-      const header = buffer.readUInt8(0);
-
-      // Check packet type using header bits
-      if (header & 0x01) {
-        // RAW PACKET (bit 0 = 1)
-        return this.decompressRawPacket(buffer);
-      } else if (header & 0x80) {
-        // RLE PACKET (bit 7 = 1)
-        return this.decompressRLEPacket();
-      } else {
-        // DELTA PACKET
-        return this.decompressDeltaPacket(buffer);
-      }
-    } catch (error) {
-      console.error('Error decompressing battery data:', error);
+  // Decompress skip packet (0 bytes)
+  private decompressSkipPacket(): BatteryData | null {
+    if (this.lastVoltage === null || this.lastCurrent === null || 
+        this.lastPercentage === null || this.lastStatus === null) {
+      console.error('❌ Battery: Skip packet received without previous data');
       return null;
     }
-  }
 
-  // Decompress raw packet (variable size)
-  private decompressRawPacket(buffer: Buffer): BatteryData {
-    if (buffer.length < 8) {
-      throw new Error('Invalid raw packet size');
-    }
+    console.log('📦 Battery: Skip packet decompressed (0 bytes) - using last values:', {
+      voltage: this.lastVoltage,
+      current: this.lastCurrent,
+      percentage: this.lastPercentage,
+      status: this.lastStatus
+    });
 
-    const header = buffer.readUInt8(0);
-    
-    // Read voltage (16-bit, mV)
-    const voltageInt = buffer.readUInt16BE(1);
-    const voltage = voltageInt / 1000; // Convert back to volts
-    
-    // Read current (16-bit signed, mA) 
-    const currentInt = buffer.readInt16BE(3);
-    const current = currentInt / 1000; // Convert back to amps
-    
-    // Read percentage (16-bit, 0.1% precision)
-    const percentageInt = buffer.readUInt16BE(5);
-    const percentage = percentageInt / 10; // Convert back to percentage
-    
-    // Read status (1 byte)
-    const statusByte = buffer.readUInt8(7);
-    const status = statusByte === 1 ? 'Charging' : 'Discharging';
-
-    // Update state
-    this.lastVoltage = voltage;
-    this.lastCurrent = current;
-    this.lastPercentage = percentage;
-    this.lastStatus = status;
-
-    return {
-      voltage,
-      current,
-      percentage,
-      status
-    };
-  }
-
-  // Decompress delta packet (variable size)
-  private decompressDeltaPacket(buffer: Buffer): BatteryData {
-    if (this.lastVoltage === null || this.lastCurrent === null || 
-        this.lastPercentage === null || this.lastStatus === null) {
-      throw new Error('Cannot decompress delta packet without previous state');
-    }
-
-    const header = buffer.readUInt8(0);
-    
-    // Extract field presence flags from header
-    const hasVoltage = (header & 0x02) !== 0;   // bit 1
-    const hasCurrent = (header & 0x04) !== 0;   // bit 2
-    const hasPercentage = (header & 0x08) !== 0; // bit 3
-    const hasStatus = (header & 0x10) !== 0;    // bit 4
-    
-    let offset = 1;
-    let voltage = this.lastVoltage;
-    let current = this.lastCurrent;
-    let percentage = this.lastPercentage;
-    let status = this.lastStatus;
-
-    // Read voltage delta if present
-    if (hasVoltage && offset < buffer.length) {
-      const voltageDelta = buffer.readInt8(offset);
-      voltage = this.lastVoltage + (voltageDelta * this.voltageQuantization);
-      offset++;
-    }
-
-    // Read current delta if present
-    if (hasCurrent && offset < buffer.length) {
-      const currentDelta = buffer.readInt8(offset);
-      current = this.lastCurrent + (currentDelta * this.currentQuantization);
-      offset++;
-    }
-
-    // Read percentage delta if present
-    if (hasPercentage && offset < buffer.length) {
-      const percentageDelta = buffer.readInt8(offset);
-      percentage = this.lastPercentage + (percentageDelta * this.percentageQuantization);
-      offset++;
-    }
-
-    // Read status if present
-    if (hasStatus && offset < buffer.length) {
-      const statusByte = buffer.readUInt8(offset);
-      status = statusByte === 1 ? 'Charging' : 'Discharging';
-      offset++;
-    }
-
-    // Clamp values to valid ranges
-    voltage = Math.max(0, Math.min(5, voltage));
-    current = Math.max(-10, Math.min(10, current));
-    percentage = Math.max(0, Math.min(100, percentage));
-
-    // Update state
-    this.lastVoltage = voltage;
-    this.lastCurrent = current;
-    this.lastPercentage = percentage;
-    this.lastStatus = status;
-
-    return {
-      voltage,
-      current,
-      percentage,
-      status
-    };
-  }
-
-  // Decompress RLE packet (unchanged values)
-  private decompressRLEPacket(): BatteryData {
-    if (this.lastVoltage === null || this.lastCurrent === null || 
-        this.lastPercentage === null || this.lastStatus === null) {
-      throw new Error('Cannot decompress RLE packet without previous state');
-    }
-
-    // Return last known battery values
     return {
       voltage: this.lastVoltage,
       current: this.lastCurrent,
@@ -177,13 +52,188 @@ export class BatteryDecompressor {
     };
   }
 
-  // Get current state (for debugging)
-  getState(): any {
-    return {
-      lastVoltage: this.lastVoltage,
-      lastCurrent: this.lastCurrent,
-      lastPercentage: this.lastPercentage,
-      lastStatus: this.lastStatus
-    };
+  // Decompress compact raw packet (5 bytes)
+  private decompressRawPacket(buffer: Buffer): BatteryData | null {
+    if (buffer.length !== 5) {
+      console.error('❌ Battery: Invalid raw packet size:', buffer.length, 'expected 5 bytes');
+      return null;
+    }
+
+    const headerByte = buffer[0];
+    if (headerByte < 0xF8) {
+      console.error('❌ Battery: Invalid raw packet header:', headerByte.toString(16));
+      return null;
+    }
+
+    try {
+      // Extract status from header
+      let status = 'Unknown';
+      switch (headerByte) {
+        case 0xF8: status = 'Discharging'; break;
+        case 0xFA: status = 'Charging'; break;
+        case 0xFC: status = 'Full'; break;
+        case 0xFE: status = 'Unknown'; break;
+        default: status = 'Unknown'; break;
+      }
+
+      // Extract voltage (1 byte, 0.01V precision, 3.0-5.55V range)
+      const voltageScaled = buffer.readUInt8(1);
+      const voltage = 3.0 + (voltageScaled / 100);
+      
+      // Extract current (1 byte signed, 0.02A precision, ±2.55A range)
+      const currentScaled = buffer.readInt8(2);
+      const current = currentScaled / 50;
+      
+      // Extract percentage (2 bytes, 0.05% precision)
+      const percentageScaled = buffer.readUInt16BE(3);
+      const percentage = percentageScaled / this.percentagePrecision;
+
+      console.log('📦 Battery: Compact raw packet decompressed (5 bytes):', {
+        headerByte: `0x${headerByte.toString(16)}`,
+        voltageScaled, voltage: voltage.toFixed(2),
+        currentScaled, current: current.toFixed(3),
+        percentageScaled, percentage: percentage.toFixed(2),
+        status,
+        bufferHex: buffer.toString('hex')
+      });
+
+      // Update state
+      this.lastVoltage = voltage;
+      this.lastCurrent = current;
+      this.lastPercentage = percentage;
+      this.lastStatus = status;
+
+      return { voltage, current, percentage, status };
+      
+    } catch (error) {
+      console.error('❌ Battery: Error decompressing raw packet:', error);
+      return null;
+    }
+  }
+
+  // Decompress efficient delta packet (2 bytes)
+  private decompressDeltaPacket(buffer: Buffer): BatteryData | null {
+    if (buffer.length !== 2) {
+      console.error('❌ Battery: Invalid delta packet size:', buffer.length, 'expected 2 bytes');
+      return null;
+    }
+
+    if (this.lastVoltage === null || this.lastCurrent === null || 
+        this.lastPercentage === null || this.lastStatus === null) {
+      console.error('❌ Battery: Delta packet received without previous data');
+      return null;
+    }
+
+    try {
+      const header = buffer.readUInt8(0);
+      
+      // Extract voltage delta (5 bits, stored as 0-31)
+      const vDeltaRaw = header & 0x1F;
+      const vDeltaScaled = vDeltaRaw - 16; // Convert back to -16 to +15
+      const voltageDelta = vDeltaScaled / this.voltagePrecision;
+      
+      // Extract current delta (2 bits for scale)
+      const cDeltaBits = (header >> 5) & 0x03;
+      let currentDelta = 0;
+      switch (cDeltaBits) {
+        case 0: currentDelta = 0; break; // No change
+        case 1: currentDelta = 0.02; break; // Small positive change
+        case 2: currentDelta = -0.02; break; // Small negative change
+        case 3: currentDelta = 0.05; break; // Large change (approximated)
+      }
+      
+      // Extract status changed flag
+      const statusChanged = (header & 0x80) !== 0;
+      
+      // Extract percentage delta (second byte)
+      const pDeltaScaled = buffer.readInt8(1);
+      const percentageDelta = pDeltaScaled / this.percentagePrecision;
+
+      console.log('📦 Battery: Efficient delta packet decompressed (2 bytes):', {
+        header: `0x${header.toString(16)}`,
+        statusChanged,
+        vDeltaRaw, vDeltaScaled, voltageDelta: voltageDelta.toFixed(4),
+        cDeltaBits, currentDelta: currentDelta.toFixed(3),
+        pDeltaScaled, percentageDelta: percentageDelta.toFixed(3),
+        bufferHex: buffer.toString('hex')
+      });
+
+      // Apply deltas
+      const voltage = this.lastVoltage + voltageDelta;
+      const current = this.lastCurrent + currentDelta;
+      const percentage = this.lastPercentage + percentageDelta;
+
+      // Status doesn't change in delta packets (status changes use raw packets)
+      const status = this.lastStatus;
+
+      console.log('🔋 Battery: Delta result:', {
+        previous: { 
+          voltage: this.lastVoltage.toFixed(2), 
+          current: this.lastCurrent.toFixed(3), 
+          percentage: this.lastPercentage.toFixed(2), 
+          status: this.lastStatus 
+        },
+        deltas: { 
+          voltageDelta: voltageDelta.toFixed(4), 
+          currentDelta: currentDelta.toFixed(3), 
+          percentageDelta: percentageDelta.toFixed(3) 
+        },
+        result: { 
+          voltage: voltage.toFixed(2), 
+          current: current.toFixed(3), 
+          percentage: percentage.toFixed(2), 
+          status 
+        }
+      });
+
+      // Update state
+      this.lastVoltage = voltage;
+      this.lastCurrent = current;
+      this.lastPercentage = percentage;
+      this.lastStatus = status;
+
+      return { voltage, current, percentage, status };
+      
+    } catch (error) {
+      console.error('❌ Battery: Error decompressing delta packet:', error);
+      return null;
+    }
+  }
+
+  // Main decompression method
+  decompressData(buffer: Buffer): BatteryData | null {
+    if (!buffer) {
+      console.error('❌ Battery: Null buffer');
+      return null;
+    }
+
+    console.log('📦 Battery: Decompressing buffer (conservative mode):', {
+      length: buffer.length,
+      hex: buffer.toString('hex'),
+      firstByte: buffer.length > 0 ? `0x${buffer[0].toString(16)}` : 'N/A'
+    });
+
+    try {
+      if (buffer.length === 0) {
+        // Skip packet (0 bytes)
+        return this.decompressSkipPacket();
+      } else if (buffer.length === 2) {
+        // Efficient delta packet (2 bytes)
+        return this.decompressDeltaPacket(buffer);
+      } else if (buffer.length === 5 && buffer[0] >= 0xF8) {
+        // Compact raw packet (5 bytes with 0xF8-0xFF header)
+        return this.decompressRawPacket(buffer);
+      } else {
+        console.error('❌ Battery: Unknown packet format:', {
+          length: buffer.length,
+          firstByte: buffer[0]?.toString(16),
+          hex: buffer.toString('hex')
+        });
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Battery: Decompression error:', error);
+      return null;
+    }
   }
 } 

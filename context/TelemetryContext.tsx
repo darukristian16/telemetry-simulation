@@ -23,16 +23,25 @@ class BatteryDataGenerator {
         this.current = config.current || 0.5; // Initial current in amps (positive = charging, negative = discharging)
         this.status = config.status || "Discharging"; // Battery status: "Charging" or "Discharging"
         
-        // Variance ranges for simulation
-        this.voltageVariance = 0.005; // Small voltage variations
-        this.percentageVariance = 0.1; // Small percentage variations
-        this.currentVariance = 0.02; // Small current variations
+        // Realistic variance ranges for simulation
+        this.voltageVariance = 0.01; // 10mV variations (more realistic for Li-ion)
+        this.percentageVariance = 0.3; // 0.3% random variations
+        this.currentVariance = 0.05; // 50mA variations
         
-        // Trend direction (for creating realistic patterns)
-        this.voltageTrend = this.status === "Charging" ? 0.001 : -0.001;
-        this.percentageTrend = this.status === "Charging" ? 0.08 : -0.05;
+        // More realistic trend direction for battery behavior
+        this.voltageTrend = this.status === "Charging" ? 0.002 : -0.002; // 2mV per update
+        this.percentageTrend = this.status === "Charging" ? 0.3 : -0.2; // 0.3%/update charge, -0.2%/update discharge
         this.currentTrend = 0; // Neutral trend for current
         this.chargeCounter = 0; // Counter to track when to simulate charging/discharging changes
+        
+        console.log('🔋 BatteryDataGenerator initialized:', {
+            initialVoltage: this.voltage,
+            initialPercentage: this.percentage,
+            initialCurrent: this.current,
+            initialStatus: this.status,
+            percentageTrend: this.percentageTrend,
+            voltageTrend: this.voltageTrend
+        });
     }
     
     // Generate random variation within range
@@ -42,6 +51,11 @@ class BatteryDataGenerator {
     
     // Generate realistic battery raw data
     generateRawData() {
+        const oldPercentage = this.percentage;
+        const oldVoltage = this.voltage;
+        const oldCurrent = this.current;
+        const oldStatus = this.status;
+        
         // Apply trends with random variations
         this.voltage += this.voltageTrend + this.getVariation(this.voltageVariance);
         this.percentage += this.percentageTrend + this.getVariation(this.percentageVariance);
@@ -51,32 +65,66 @@ class BatteryDataGenerator {
         this.voltage = Math.max(3.0, Math.min(4.2, this.voltage));
         this.percentage = Math.max(0, Math.min(100, this.percentage));
         
+        // Auto-adjust current sign based on status
+        if (this.status === "Charging" && this.current < 0) {
+            this.current = Math.abs(this.current);
+        } else if (this.status === "Discharging" && this.current > 0) {
+            this.current = -Math.abs(this.current);
+        }
+        
         // Randomly switch between charging/discharging occasionally
         this.chargeCounter++;
-        if (this.chargeCounter > 30 && Math.random() < 0.05) {
+        if (this.chargeCounter > 20 && Math.random() < 0.08) { // Increased probability from 0.05 to 0.08
             if (this.status === "Charging") {
                 this.status = "Discharging";
-                this.currentTrend = -0.01;
-                this.voltageTrend = -0.001;
-                this.percentageTrend = -0.05;
+                this.currentTrend = -0.02;
+                this.voltageTrend = -0.002;
+                this.percentageTrend = -0.2; // Discharge 0.2% per update
                 this.current = -Math.abs(this.current); // Make current negative for discharging
+                console.log('🔋 Battery status switched to Discharging');
             } else {
                 this.status = "Charging";
-                this.currentTrend = 0.01;
-                this.voltageTrend = 0.001;
-                this.percentageTrend = 0.08;
+                this.currentTrend = 0.02;
+                this.voltageTrend = 0.002;
+                this.percentageTrend = 0.3; // Charge 0.3% per update
                 this.current = Math.abs(this.current); // Make current positive for charging
+                console.log('🔋 Battery status switched to Charging');
             }
             this.chargeCounter = 0;
         }
         
+        // Handle edge cases
+        if (this.percentage <= 5 && this.status === "Discharging") {
+            // Near empty - slow down discharge
+            this.percentageTrend = -0.05;
+            console.log('🔋 Battery near empty - slowing discharge');
+        } else if (this.percentage >= 95 && this.status === "Charging") {
+            // Near full - slow down charge
+            this.percentageTrend = 0.1;
+            console.log('🔋 Battery near full - slowing charge');
+        }
+        
         // Return formatted data
-        return {
+        const result = {
             voltage: parseFloat(this.voltage.toFixed(3)),
             percentage: parseFloat(this.percentage.toFixed(1)),
             current: parseFloat(this.current.toFixed(3)),
             status: this.status
         };
+        
+        // Debug log when percentage changes significantly
+        const percentageChange = Math.abs(result.percentage - oldPercentage);
+        if (percentageChange >= 0.1) {
+            console.log('🔋 Battery percentage changed:', {
+                from: oldPercentage.toFixed(1),
+                to: result.percentage.toFixed(1),
+                change: (result.percentage - oldPercentage).toFixed(1),
+                trend: this.percentageTrend,
+                status: result.status
+            });
+        }
+        
+        return result;
     }
 
     // Properties for TypeScript
@@ -871,7 +919,34 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         percentage: prev.batteryPercentage || parseFloat(simulationSettings.batteryPercentage) || 100,
         status: prev.batteryStatus || simulationSettings.batteryStatus || "Discharging"
       };
-
+      
+      console.log('🔋 TelemetryContext: Battery generator status and data:', {
+        generatorExists: !!batteryGenerator,
+        isSimulating: isSimulating,
+        generatedData: batteryData,
+        previousData: {
+          voltage: prev.voltage,
+          current: prev.current,
+          percentage: prev.batteryPercentage,
+          status: prev.batteryStatus
+        },
+        simulationSettings: {
+          voltage: simulationSettings.voltage,
+          current: simulationSettings.current,
+          percentage: simulationSettings.batteryPercentage,
+          status: simulationSettings.batteryStatus
+        }
+      });
+      
+      // IMPORTANT: Force battery generator to be used if simulation is active
+      if (isSimulating && batteryGenerator) {
+        console.log('🔋 TelemetryContext: Using battery generator data');
+      } else if (!batteryGenerator) {
+        console.warn('⚠️ TelemetryContext: No battery generator available - using fallback values');
+      } else {
+        console.warn('⚠️ TelemetryContext: Simulation not active - using fallback values');
+      }
+      
       // Use temperature generator for realistic temperature data
       const temperatureData = temperatureGenerator?.generateRawData() || {
         temperature: prev.temperature || parseFloat(simulationSettings.temperature) || 25
@@ -913,8 +988,21 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
             status: batteryData.status
           };
           
+          console.log('🔋 TelemetryContext: About to compress battery data:', {
+            voltage: batteryRawData.voltage,
+            current: batteryRawData.current,
+            percentage: batteryRawData.percentage,
+            status: batteryRawData.status
+          });
+          
           const compressionResult = ensuredBatteryCompressor.compressData(batteryRawData, compressionSettings.showMetrics);
           batteryBuffer = compressionResult.buffer;
+          
+          console.log('🔋 TelemetryContext: Battery compression result:', {
+            bufferLength: batteryBuffer.length,
+            bufferHex: batteryBuffer.toString('hex'),
+            compressionRatio: compressionResult.compressionRatio
+          });
           
           if (compressionSettings.showMetrics) {
             totalCompressionRatio += compressionResult.compressionRatio || 1;
@@ -1128,6 +1216,30 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       current: parseFloat(simulationSettings.current),
       status: simulationSettings.batteryStatus
     });
+    
+    console.log('🔋 TelemetryContext: Battery generator initialized with settings:', {
+      voltage: parseFloat(simulationSettings.voltage),
+      percentage: parseFloat(simulationSettings.batteryPercentage),
+      current: parseFloat(simulationSettings.current),
+      status: simulationSettings.batteryStatus
+    });
+    
+    // Test generate one sample to verify it's working
+    const testData = generator.generateRawData();
+    console.log('🔋 TelemetryContext: Test battery data generation:', testData);
+    
+    // FOR DEBUGGING: Create an obvious test case
+    if (parseFloat(simulationSettings.batteryPercentage) === 100) {
+      console.log('🔋 TelemetryContext: DEBUG MODE - Creating obvious battery test case');
+      const debugGenerator = new BatteryDataGenerator({
+        voltage: 3.7,
+        percentage: 95, // Start at 95% instead of 100%
+        current: -1.5,  // Heavy discharge
+        status: "Discharging"
+      });
+      const debugTest = debugGenerator.generateRawData();
+      console.log('🔋 TelemetryContext: Debug generator test:', debugTest);
+    }
 
     // Initialize temperature generator with user's input values
     const tempGenerator = new LM35TemperatureGenerator({
