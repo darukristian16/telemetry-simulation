@@ -14,7 +14,6 @@ import {
 import { useSerialStore } from "@/lib/store";
 import { UnifiedSerialConnection } from "@/components/unified-serial-connection";
 import { CompressionMetricsCard } from "@/components/CompressionMetricsCard";
-import { DataStructureDebugger } from "@/components/DataStructureDebugger";
 
 // Helper component for input fields
 interface SimulationInputProps {
@@ -397,9 +396,6 @@ export default function TelemetryPage() {
               {/* Testing Components - Only show when simulation is running */}
               {isSimulating && (
                 <div className="mt-6 space-y-6">
-                  {/* Data Structure Monitor */}
-                  <DataStructureDebugger />
-                  
                   {/* Compression Metrics */}
                   <CompressionMetricsCard telemetryData={telemetryData} />
                 </div>

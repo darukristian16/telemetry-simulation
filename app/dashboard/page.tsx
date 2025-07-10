@@ -23,7 +23,6 @@ import dynamic from 'next/dynamic';
 import { UnifiedSerialConnection } from "@/components/unified-serial-connection";
 
 import { DataProcessor } from "@/components/DataProcessor";
-import { DebugPanel } from "@/components/DebugPanel";
 import { SiteHeader } from "@/components/site-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { 
@@ -176,16 +175,7 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Debug: Log what the dashboard is receiving
-  useEffect(() => {
-    console.log('📊 DASHBOARD DEBUG:', {
-      hasProcessedData: !!processedData,
-      processedData: processedData,
-      isReceivingData: isReceivingData,
-      dataStats: dataStats,
-      lastUpdateTime: lastUpdateTime
-    });
-  }, [processedData, isReceivingData, dataStats, lastUpdateTime]);
+
   
   // Calculate battery color based on percentage
   const batteryColorClass = (processedData?.batteryPercentage || 0) > 50 
@@ -430,15 +420,7 @@ export default function DashboardPage() {
     flightTime: formatFlightTime(processedData?.flightTime || 0)
   };
 
-  // Debug flight time in dashboard
-  useEffect(() => {
-    console.log('🚁 DASHBOARD Flight Time Debug:', {
-      processedDataFlightTime: processedData?.flightTime,
-      formattedFlightTime: systemStatus.flightTime,
-      hasProcessedData: !!processedData,
-      isReceivingData: isReceivingData
-    });
-  }, [processedData?.flightTime, systemStatus.flightTime, isReceivingData]);
+
 
   // Map info
   const mapInfo = {
@@ -461,12 +443,10 @@ export default function DashboardPage() {
     
     // For compressed data, use the actual compression ratio from metrics
     if (processedData.compressionMetrics?.compressionRatio) {
-      console.log('📊 Using actual compression ratio from metrics:', processedData.compressionMetrics.compressionRatio);
       return processedData.compressionMetrics.compressionRatio;
     }
     
     // Fallback to estimate if metrics not available
-    console.log('📊 Using fallback compression ratio estimate (3.5)');
     return dataStats.compressedPackets > 0 ? 3.5 : 1;
   })();
   
@@ -487,12 +467,7 @@ export default function DashboardPage() {
       const decompressionTime = processedData?.decompressionTime || 0;
       const totalLatency = baseLatency + compressionTime + decompressionTime;
       
-      console.log('⏱️ Total latency calculation for compressed data:', {
-        baseLatency: baseLatency.toFixed(2) + 'ms',
-        compressionTime: compressionTime.toFixed(2) + 'ms',
-        decompressionTime: decompressionTime.toFixed(2) + 'ms',
-        totalLatency: totalLatency.toFixed(2) + 'ms'
-      });
+
       
       return totalLatency;
     }
@@ -570,9 +545,6 @@ export default function DashboardPage() {
                 iconColorClass={latencyColorClass}
               />
             </div>
-
-            {/* Debug Panel */}
-            <DebugPanel />
 
             {/* Main Content Grid: Map and Right Sidebar */}
             <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-3">

@@ -34,14 +34,7 @@ class BatteryDataGenerator {
         this.currentTrend = 0; // Neutral trend for current
         this.chargeCounter = 0; // Counter to track when to simulate charging/discharging changes
         
-        console.log('🔋 BatteryDataGenerator initialized:', {
-            initialVoltage: this.voltage,
-            initialPercentage: this.percentage,
-            initialCurrent: this.current,
-            initialStatus: this.status,
-            percentageTrend: this.percentageTrend,
-            voltageTrend: this.voltageTrend
-        });
+
     }
     
     // Generate random variation within range
@@ -81,14 +74,14 @@ class BatteryDataGenerator {
                 this.voltageTrend = -0.002;
                 this.percentageTrend = -0.2; // Discharge 0.2% per update
                 this.current = -Math.abs(this.current); // Make current negative for discharging
-                console.log('🔋 Battery status switched to Discharging');
+
             } else {
                 this.status = "Charging";
                 this.currentTrend = 0.02;
                 this.voltageTrend = 0.002;
                 this.percentageTrend = 0.3; // Charge 0.3% per update
                 this.current = Math.abs(this.current); // Make current positive for charging
-                console.log('🔋 Battery status switched to Charging');
+
             }
             this.chargeCounter = 0;
         }
@@ -97,11 +90,11 @@ class BatteryDataGenerator {
         if (this.percentage <= 5 && this.status === "Discharging") {
             // Near empty - slow down discharge
             this.percentageTrend = -0.05;
-            console.log('🔋 Battery near empty - slowing discharge');
+
         } else if (this.percentage >= 95 && this.status === "Charging") {
             // Near full - slow down charge
             this.percentageTrend = 0.1;
-            console.log('🔋 Battery near full - slowing charge');
+
         }
         
         // Return formatted data
@@ -112,17 +105,7 @@ class BatteryDataGenerator {
             status: this.status
         };
         
-        // Debug log when percentage changes significantly
-        const percentageChange = Math.abs(result.percentage - oldPercentage);
-        if (percentageChange >= 0.1) {
-            console.log('🔋 Battery percentage changed:', {
-                from: oldPercentage.toFixed(1),
-                to: result.percentage.toFixed(1),
-                change: (result.percentage - oldPercentage).toFixed(1),
-                trend: this.percentageTrend,
-                status: result.status
-            });
-        }
+
         
         return result;
     }
@@ -798,16 +781,11 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       
       // Enhanced port validation
       if (!port) {
-        console.warn('⚠️ Auto-transmission stopped: No port available');
         stopSimulation();
         return;
       }
       
       if (!port.writable) {
-        console.warn('⚠️ Auto-transmission stopped: Port not writable', {
-          readable: !!port.readable,
-          writable: !!port.writable
-        });
         stopSimulation();
         return;
       }
@@ -816,7 +794,6 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       const currentTimestamp = data.ts || Date.now();
       
       if (currentTimestamp <= lastTransmittedTimestamp) {
-        console.log('⏭️ Skipping duplicate transmission - timestamp:', currentTimestamp);
         return;
       }
       
@@ -835,36 +812,26 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         const jsonData = JSON.stringify(dataWithTimestamp) + '\n';
         const encodedData = encoder.encode(jsonData);
         
-        console.log('🚀 TRANSMISSION DEBUG:', {
-          transmissionTimestamp: transmissionTimestamp,
-          performanceNow: performance.now(),
-          dateNow: Date.now(),
-          dataKeys: Object.keys(dataWithTimestamp),
-          hasTransmissionTimestamp: 'transmissionTimestamp' in dataWithTimestamp
-        });
+
         
         await writer.write(encodedData);
         
         setLastTransmittedTimestamp(currentTimestamp);
         setLastTransmittedSequence(0); // Reset sequence tracking
-        console.log('✅ Transmission successful - timestamp:', currentTimestamp);
         
       } finally {
         if (writer) {
           try {
             writer.releaseLock();
           } catch (lockError) {
-            console.warn('⚠️ Writer lock release error:', lockError);
+
           }
         }
       }
       
     } catch (error: any) {
-      console.error('❌ Auto-transmission failed:', error?.message || error);
-      
       // Stop simulation and show error
       stopSimulation();
-      console.error('🚨 Serial transmission failed. Simulation stopped.');
       
       // Show alert after a brief delay to avoid blocking
       setTimeout(() => {
@@ -904,13 +871,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         altitude: parseFloat(simulationSettings.altitude) || 100
       };
       
-      // Debug: Log the generated GNSS data
-      console.log('🛰️ Generated GNSS Data:', {
-        nmea: gnssData.nmea,
-        latitude: gnssData.latitude,
-        longitude: gnssData.longitude,
-        altitude: gnssData.altitude
-      });
+
       
       // Use battery generator for realistic battery data
       const batteryData = batteryGenerator?.generateRawData() || {
@@ -920,32 +881,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
         status: prev.batteryStatus || simulationSettings.batteryStatus || "Discharging"
       };
       
-      console.log('🔋 TelemetryContext: Battery generator status and data:', {
-        generatorExists: !!batteryGenerator,
-        isSimulating: isSimulating,
-        generatedData: batteryData,
-        previousData: {
-          voltage: prev.voltage,
-          current: prev.current,
-          percentage: prev.batteryPercentage,
-          status: prev.batteryStatus
-        },
-        simulationSettings: {
-          voltage: simulationSettings.voltage,
-          current: simulationSettings.current,
-          percentage: simulationSettings.batteryPercentage,
-          status: simulationSettings.batteryStatus
-        }
-      });
+
       
-      // IMPORTANT: Force battery generator to be used if simulation is active
-      if (isSimulating && batteryGenerator) {
-        console.log('🔋 TelemetryContext: Using battery generator data');
-      } else if (!batteryGenerator) {
-        console.warn('⚠️ TelemetryContext: No battery generator available - using fallback values');
-      } else {
-        console.warn('⚠️ TelemetryContext: Simulation not active - using fallback values');
-      }
+
       
       // Use temperature generator for realistic temperature data
       const temperatureData = temperatureGenerator?.generateRawData() || {
@@ -988,12 +926,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
             status: batteryData.status
           };
           
-          console.log('🔋 TelemetryContext: About to compress battery data:', {
-            voltage: batteryRawData.voltage,
-            current: batteryRawData.current,
-            percentage: batteryRawData.percentage,
-            status: batteryRawData.status
-          });
+
           
           const compressionResult = ensuredBatteryCompressor.compressData(batteryRawData, compressionSettings.showMetrics);
           batteryBuffer = compressionResult.buffer;
@@ -1172,15 +1105,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
           // Note: transmissionTimestamp will be set precisely when transmitting
         };
         
-        // Debug: Log the raw data being transmitted
-        console.log('📡 Transmitting RAW Data:', {
-          gnss: rawData.gnss,
-          gnssParsed: {
-            latitude: gnssData.latitude,
-            longitude: gnssData.longitude,
-            altitude: gnssData.altitude
-          }
-        });
+
                   
           // Auto-transmit raw data immediately (no delay to minimize latency)
         transmitTelemetryAutomatically(rawData);
@@ -1201,12 +1126,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       const port = sessionState.port;
       
       if (!isConnected || !port || (!port.readable && !port.writable)) {
-        console.error('❌ Cannot start simulation: No serial connection available');
         alert('Please connect to a serial device before starting simulation.');
         return;
       }
-      
-      console.log('✅ Serial connection verified, starting simulation with auto-transmission');
     }
     
     // Initialize battery generator with user's input values
@@ -1217,29 +1139,10 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       status: simulationSettings.batteryStatus
     });
     
-    console.log('🔋 TelemetryContext: Battery generator initialized with settings:', {
-      voltage: parseFloat(simulationSettings.voltage),
-      percentage: parseFloat(simulationSettings.batteryPercentage),
-      current: parseFloat(simulationSettings.current),
-      status: simulationSettings.batteryStatus
-    });
-    
     // Test generate one sample to verify it's working
     const testData = generator.generateRawData();
-    console.log('🔋 TelemetryContext: Test battery data generation:', testData);
     
-    // FOR DEBUGGING: Create an obvious test case
-    if (parseFloat(simulationSettings.batteryPercentage) === 100) {
-      console.log('🔋 TelemetryContext: DEBUG MODE - Creating obvious battery test case');
-      const debugGenerator = new BatteryDataGenerator({
-        voltage: 3.7,
-        percentage: 95, // Start at 95% instead of 100%
-        current: -1.5,  // Heavy discharge
-        status: "Discharging"
-      });
-      const debugTest = debugGenerator.generateRawData();
-      console.log('🔋 TelemetryContext: Debug generator test:', debugTest);
-    }
+
 
     // Initialize temperature generator with user's input values
     const tempGenerator = new LM35TemperatureGenerator({

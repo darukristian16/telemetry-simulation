@@ -172,7 +172,6 @@ export class TemperatureCompressor {
       return this.createResult(buffer, rawData, showMetrics, startTime);
       
     } catch (error) {
-      console.error("Error in TemperatureCompressor:", error);
       // Return raw packet as fallback
       const fallbackBuffer = this.createRawPacket(rawData.temperature || 25.0);
       return this.createResult(fallbackBuffer, rawData, showMetrics, startTime);

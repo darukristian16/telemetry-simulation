@@ -59,7 +59,6 @@ function parseNMEA(nmeaString: string): { latitude: number; longitude: number; a
     
     return { latitude, longitude, altitude };
   } catch (error) {
-    console.error('Error parsing NMEA string:', error);
     return defaultData;
   }
 }
@@ -73,10 +72,7 @@ export function DataProcessor() {
   const lastProcessedTimestamp = useRef<number>(0);
 
   useEffect(() => {
-    console.log('🔄 DataProcessor: received telemetryData:', telemetryData);
-    
     if (!telemetryData) {
-      console.log('📝 DataProcessor: No telemetry data to process');
       return;
     }
 
@@ -84,18 +80,11 @@ export function DataProcessor() {
     // Raw data uses transmissionTimestamp, compressed data uses ts
     const currentTimestamp = telemetryData.transmissionTimestamp || telemetryData.ts || telemetryData.timestamp || Date.now();
     
-    console.log('🔄 DataProcessor: processing data with timestamp:', currentTimestamp, 'last processed:', lastProcessedTimestamp.current);
-    console.log('🔄 DataProcessor: telemetry data keys:', Object.keys(telemetryData));
-    console.log('🔄 DataProcessor: timestamp fields:', {
-      transmissionTimestamp: telemetryData.transmissionTimestamp,
-      ts: telemetryData.ts,
-      timestamp: telemetryData.timestamp
-    });
+
     
     // Prevent processing duplicate data - only process if timestamp has changed
     // Allow small tolerance for timing differences
     if (currentTimestamp && Math.abs(currentTimestamp - lastProcessedTimestamp.current) < 1) {
-      console.log('📝 DataProcessor: Skipping duplicate data (timestamps too close)');
       return;
     }
 
@@ -103,7 +92,7 @@ export function DataProcessor() {
       const startTime = performance.now();
       setIsReceivingData(true);
       
-      console.log('🔄 DataProcessor: Starting data processing...');
+
 
       try {
         let processedData: ProcessedTelemetryData;
@@ -122,13 +111,7 @@ export function DataProcessor() {
             processedData.compressionMetrics = telemetryData.compressionMetrics;
           }
 
-        console.log('🔄 DataProcessor: Compressed data processed with flightTime:', {
-          inputFlightTime: telemetryData.flightTime,
-          outputFlightTime: processedData.flightTime,
-          hasFlightTime: !!telemetryData.flightTime,
-          compressionRatio: processedData.compressionMetrics?.compressionRatio,
-          source: 'DataProcessor-Compressed'
-        });
+
         } else {
           // RAW DATA: Parse NMEA string and process other raw values
           const nmeaData = parseNMEA(telemetryData.gnss || '');
@@ -149,12 +132,7 @@ export function DataProcessor() {
             dataSource: 'raw'
           };
 
-          console.log('🔄 DataProcessor: Raw data processed with flightTime:', {
-            inputFlightTime: telemetryData.flightTime,
-            outputFlightTime: processedData.flightTime,
-            hasFlightTime: !!telemetryData.flightTime,
-            source: 'DataProcessor-Raw'
-          });
+
         }
 
         const endTime = performance.now();
@@ -165,27 +143,20 @@ export function DataProcessor() {
         // Update last processed timestamp
         lastProcessedTimestamp.current = currentTimestamp;
 
-        console.log('📡 DataProcessor: Forwarding processed data to dashboard:', processedData);
-        
         // Check if data has transmissionTimestamp (indicates it came from serial reception)
         // If so, don't override the data that SerialTelemetryBridge already processed
         if (telemetryData.transmissionTimestamp) {
-          console.log('📡 DataProcessor: Skipping dashboard update - data already processed by SerialTelemetryBridge');
           return;
         }
 
         // Forward processed data to Dashboard
-        console.log('🔋 DataProcessor: Sending battery percentage to dashboard:', processedData.batteryPercentage);
         setProcessedData(processedData);
         setLastUpdateTime(Date.now());
         
         // Update statistics
         updateDataStats(processingTime, isCompressed);
         
-        console.log('✅ DataProcessor: Data processing completed successfully');
-
       } catch (error) {
-        console.error('Error processing telemetry data:', error);
       } finally {
         setIsReceivingData(false);
       }
@@ -278,16 +249,10 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
         current = battData.current;
         batteryPercentage = battData.percentage;
         batteryStatus = battData.status;
-        console.log('🔋 DataProcessor: Battery decompressed successfully:', { voltage, current, batteryPercentage, batteryStatus });
-      } else {
-        console.log('🔋 DataProcessor: Battery decompression failed, using default:', batteryPercentage);
       }
-    } else {
-      console.log('🔋 DataProcessor: No battery data to decompress, using default:', batteryPercentage);
     }
 
   } catch (error) {
-    console.error('Error during decompression:', error);
     // Continue with default values if decompression fails
   }
 
@@ -312,6 +277,5 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
     decompressionTime
   };
 
-  console.log('🔋 DataProcessor: Final battery percentage being returned:', finalResult.batteryPercentage);
   return finalResult;
 } 

@@ -26,11 +26,7 @@ export class TemperatureDecompressor {
     }
 
     try {
-      console.log('🔍 Temperature decompression debug:', {
-        bufferLength: buffer.length,
-        bufferHex: buffer.toString('hex'),
-        firstByte: buffer.length > 0 ? `0x${buffer.readUInt8(0).toString(16)}` : 'N/A'
-      });
+
 
       const firstByte = buffer.readUInt8(0);
 
@@ -38,11 +34,7 @@ export class TemperatureDecompressor {
       if (firstByte & 0x80) {
         // RAW PACKET (bit 7 = 1) - needs at least 2 bytes
         if (buffer.length < 2) {
-          console.error('❌ Temperature: Raw packet flag detected but buffer too small', {
-            bufferLength: buffer.length,
-            requiredLength: 2,
-            bufferHex: buffer.toString('hex')
-          });
+
           return null; // Return null instead of throwing
         }
         return this.decompressRawPacket(buffer);
@@ -54,7 +46,6 @@ export class TemperatureDecompressor {
         return this.decompressDeltaPacket(buffer);
       }
     } catch (error) {
-      console.error('Error decompressing temperature data:', error);
       return null;
     }
   }

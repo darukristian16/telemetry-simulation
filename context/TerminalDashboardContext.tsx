@@ -89,9 +89,8 @@ export function TerminalDashboardProvider({ children }: { children: ReactNode })
     averageLatency: 0
   });
   
-  // Debug: Log when data changes
+  // Set processed data without debugging
   const debugSetProcessedData = (newData: ProcessedTelemetryData | null) => {
-    console.log('📊 TerminalDashboardContext: setProcessedData called with:', newData);
     setProcessedData(newData);
   };
 

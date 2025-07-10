@@ -24,7 +24,6 @@ export function NavMain({
 }) {
   const pathname = usePathname()
   const { state } = useSidebar()
-  console.log('Current pathname:', pathname)
 
   return (
     <SidebarGroup>
@@ -32,7 +31,6 @@ export function NavMain({
         <SidebarMenu>
           {items.map((item) => {
             const isActive = pathname === item.url
-            console.log(`Item ${item.title}:`, { url: item.url, isActive })
             return (
               <SidebarMenuItem key={item.title}>
                 <Link href={item.url} className="block w-full">
