@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { HelpCircle, Mail, Lock, ArrowRight } from "lucide-react";
 import { FaGoogle, FaGithub, FaMicrosoft } from "react-icons/fa"; 
 
-export default function SignIn() {
+function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered");
@@ -262,5 +262,13 @@ export default function SignIn() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function SignIn() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SignInContent />
+    </Suspense>
   );
 } 
