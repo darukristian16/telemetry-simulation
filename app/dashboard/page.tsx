@@ -232,9 +232,9 @@ export default function DashboardPage() {
 
   // Get latency performance text with more realistic ranges
   const getLatencyPerformanceText = (latency: number) => {
-    if (latency < 10) return "Excellent";
-    if (latency < 50) return "Good";
-    if (latency < 200) return "Fair";
+    if (latency < 100) return "Excellent";
+    if (latency < 300) return "Good";
+    if (latency < 400) return "Fair";
     if (latency < 500) return "Poor";
     return "Very High";
   };
