@@ -57,8 +57,8 @@ interface TerminalDashboardContextType {
 
 // Default processed data
 const defaultProcessedData: ProcessedTelemetryData = {
-  latitude: -33.8688,
-  longitude: 151.2093,
+  latitude: -6.890582045572037,
+  longitude: 107.6110135724158,
   altitude: 100,
   temperature: 25,
   coLevel: 1.2,

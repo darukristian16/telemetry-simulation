@@ -295,8 +295,8 @@ class GNSSDataGenerator {
         currentAltitude?: number;
     } = {}) {
         // Initialize realistic starting position with user inputs or defaults
-        this.currentLat = config.currentLat || 40.7128; // Latitude (°)
-        this.currentLon = config.currentLon || -74.0060; // Longitude (°)
+        this.currentLat = config.currentLat || -6.890582045572037; // Latitude (°) Bandung, Indonesia
+        this.currentLon = config.currentLon || 107.6110135724158; // Longitude (°) Bandung, Indonesia
         this.currentAltitude = config.currentAltitude || 10.0; // Altitude in meters
         this.hdop = 0.9; // Initial HDOP value
         this.satellites = this.getRandomInt(6, 12); // Number of satellites
@@ -689,7 +689,7 @@ interface TelemetryContextType {
 
 // Default values
 const defaultTelemetryData: TelemetryData = {
-  gnss: "$GPGGA,000000,3352.128,S,15112.558,E,1,8,0.9,100.0,M,,M,,*5C",
+  gnss: "$GPGGA,000000,0653.4349,S,10736.6608,E,1,8,0.9,100.0,M,,M,,*5C", // Bandung, Indonesia
   temperature: 25,
   coLevel: 1.2,
   no2Level: 100,
@@ -701,8 +701,8 @@ const defaultTelemetryData: TelemetryData = {
 };
 
 const defaultSimulationSettings = {
-  latitude: '-33.8688',
-  longitude: '151.2093',
+  latitude: '-6.890582045572037', // Bandung, Indonesia
+  longitude: '107.6110135724158', // Bandung, Indonesia
   altitude: '100',
   temperature: '25',
   coLevel: '1.2',
@@ -732,8 +732,8 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
   
   // Simulation settings state
   const [simulationSettings, setSimulationSettings] = useState({
-    latitude: '-33.8688',
-    longitude: '151.2093',
+    latitude: '-6.890582045572037',
+    longitude: '107.6110135724158',
     altitude: '100',
     temperature: '25',
     coLevel: '1.2',
@@ -865,9 +865,9 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       
       // Use GNSS generator for realistic GPS data
       const gnssData = gnssGenerator?.generateRawData() || {
-        nmea: `$GPGGA,000000,3352.128,S,15112.558,E,1,8,0.9,${parseFloat(simulationSettings.altitude) || 100}.0,M,,M,,*5C`,
-        latitude: parseFloat(simulationSettings.latitude) || -33.8688,
-        longitude: parseFloat(simulationSettings.longitude) || 151.2093,
+        nmea: `$GPGGA,000000,0653.4349,S,10736.6608,E,1,8,0.9,${parseFloat(simulationSettings.altitude) || 100}.0,M,,M,,*5C`,
+        latitude: parseFloat(simulationSettings.latitude) || -6.890582045572037,
+        longitude: parseFloat(simulationSettings.longitude) || 107.6110135724158,
         altitude: parseFloat(simulationSettings.altitude) || 100
       };
       
@@ -1203,7 +1203,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
     
     // Initialize telemetry data with simulation settings
     setTelemetryData({
-      gnss: `$GPGGA,000000,3352.128,S,15112.558,E,1,8,0.9,${parseFloat(simulationSettings.altitude) || 100}.0,M,,M,,*5C`,
+      gnss: `$GPGGA,000000,0653.4349,S,10736.6608,E,1,8,0.9,${parseFloat(simulationSettings.altitude) || 100}.0,M,,M,,*5C`, // Bandung, Indonesia
       temperature: parseFloat(simulationSettings.temperature),
       coLevel: parseFloat(simulationSettings.coLevel),
       no2Level: parseFloat(simulationSettings.no2Level),

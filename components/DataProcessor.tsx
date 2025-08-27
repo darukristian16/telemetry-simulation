@@ -20,8 +20,8 @@ const persistentDecompressors = {
 
 // Function to parse NMEA $GPGGA sentence and extract coordinates
 function parseNMEA(nmeaString: string): { latitude: number; longitude: number; altitude: number } {
-  // Default values
-  const defaultData = { latitude: -33.8688, longitude: 151.2093, altitude: 100 };
+  // Default values - Bandung, Indonesia
+  const defaultData = { latitude: -6.890582045572037, longitude: 107.6110135724158, altitude: 100 };
   
   if (!nmeaString || !nmeaString.startsWith('$GPGGA')) {
     return defaultData;
@@ -179,9 +179,9 @@ async function decompressData(compressedData: any): Promise<ProcessedTelemetryDa
   const { gnss: gnssDecompressor, temperature: temperatureDecompressor, co: coDecompressor, 
           no2: no2Decompressor, so2: so2Decompressor, battery: batteryDecompressor } = persistentDecompressors;
 
-  // Default values (in case decompression fails or buffer is empty)
-  let latitude = -33.8688;
-  let longitude = 151.2093;
+  // Default values - Bandung, Indonesia (in case decompression fails or buffer is empty)
+  let latitude = -6.890582045572037;
+  let longitude = 107.6110135724158;
   let altitude = 100;
   let temperature = 25;
   let coLevel = 1.2;

@@ -22,8 +22,8 @@ const persistentDecompressors = {
 
 // Function to parse NMEA $GPGGA sentence and extract coordinates
 function parseNMEA(nmeaString: string): { latitude: number; longitude: number; altitude: number } {
-  // Default values
-  const defaultData = { latitude: -33.8688, longitude: 151.2093, altitude: 100 };
+  // Default values - Bandung, Indonesia
+  const defaultData = { latitude: -6.890582045572037, longitude: 107.6110135724158, altitude: 100 };
   
   if (!nmeaString || !nmeaString.startsWith('$GPGGA')) {
     return defaultData;
@@ -135,8 +135,8 @@ function processSerialTelemetryData(telemetryData: any, flightStartTime: number 
 
     // Get last known values from global state or use defaults
     const lastKnownValues = (processSerialTelemetryData as any).lastKnownValues || {
-      latitude: -33.8688,
-      longitude: 151.2093,
+      latitude: -6.890582045572037,
+      longitude: 107.6110135724158,
       altitude: 100,
       temperature: 25,
       coLevel: 1.2,
@@ -931,8 +931,8 @@ export function SerialTelemetryBridge() {
           
           // Send reset flight time to dashboard
           const resetData = {
-            latitude: -33.8688,
-            longitude: 151.2093,
+            latitude: -6.890582045572037,
+            longitude: 107.6110135724158,
             altitude: 100,
             temperature: 25,
             coLevel: 1.2,

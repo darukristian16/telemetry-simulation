@@ -73,16 +73,23 @@ export default function MapView({
   }, []);
 
   // Handle map ready event
-  const handleMapReady = (map: L.Map) => {
-    mapRef.current = map;
+  const handleMapReady = () => {
+    if (!mapRef.current) return;
+    
     setMapReady(true);
     
     // Force map to invalidate size after a brief delay
-    setTimeout(() => {
-      if (mapRef.current) {
+    const checkMap = () => {
+      if (mapRef.current && typeof mapRef.current.invalidateSize === 'function') {
         mapRef.current.invalidateSize();
+      } else {
+        // If map isn't ready yet, check again shortly
+        setTimeout(checkMap, 50);
       }
-    }, 100);
+    };
+    
+    // Start checking for map readiness
+    checkMap();
   };
 
   const handleCenterClick = () => {
@@ -120,12 +127,17 @@ export default function MapView({
           minHeight: '200px' // Ensure minimum height
         }}
         className={`rounded-lg ${className}`}
-        whenReady={handleMapReady}
+        whenReady={() => handleMapReady()}
         zoomControl={true}
         scrollWheelZoom={true}
         doubleClickZoom={true}
-        touchZoom={true}
         dragging={true}
+        ref={(map) => {
+          if (map) {
+            mapRef.current = map;
+            handleMapReady();
+          }
+        }}
       >
         {/* Only show center control if preserveView is enabled */}
         {preserveView && (
