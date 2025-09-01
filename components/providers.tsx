@@ -7,6 +7,8 @@ import { TerminalDashboardProvider } from '@/context/TerminalDashboardContext';
 import { ProcessedDataProvider } from '@/context/ProcessedDataContext';
 import SessionProviderWrapper from './SessionProviderWrapper';
 import { SerialTelemetryBridge } from './SerialTelemetryBridge';
+import { SimulationProvider } from '@/context/SimulationContext';
+import { LoggingProvider } from '@/context/LoggingContext';
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -17,16 +19,20 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
       <SessionProviderWrapper>
-        <TelemetryProvider>
-          <ProcessedDataProvider>
-            <TerminalDashboardProvider>
-              {/* SerialTelemetryBridge is mounted globally to ensure continuous data processing */}
-              <SerialTelemetryBridge />
-              {children}
-            </TerminalDashboardProvider>
-          </ProcessedDataProvider>
-        </TelemetryProvider>
+        <LoggingProvider>
+          <SimulationProvider>
+            <TelemetryProvider>
+              <ProcessedDataProvider>
+                <TerminalDashboardProvider>
+                  {/* SerialTelemetryBridge is mounted globally to ensure continuous data processing */}
+                  <SerialTelemetryBridge />
+                  {children}
+                </TerminalDashboardProvider>
+              </ProcessedDataProvider>
+            </TelemetryProvider>
+          </SimulationProvider>
+        </LoggingProvider>
       </SessionProviderWrapper>
     </ThemeProvider>
   );
-} 
+}

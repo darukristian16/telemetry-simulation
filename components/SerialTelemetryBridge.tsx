@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useSimulation } from '@/context/SimulationContext';
 import { useSerialStore } from '@/lib/store';
 import { useTelemetry } from '@/context/TelemetryContext';
 import { useTerminalDashboard } from '@/context/TerminalDashboardContext';
@@ -470,6 +471,8 @@ function processSerialTelemetryData(telemetryData: any, flightStartTime: number 
  * and forwards it to the TelemetryContext for dashboard visualization.
  */
 export function SerialTelemetryBridge() {
+  // Get simulation parameters from context
+  const { simulationState } = useSimulation();
   const { terminalContent, setTerminalContent } = useSerialStore();
   const { setTelemetryData } = useTelemetry();
   const { setProcessedData, setIsReceivingData, setLastUpdateTime, updateDataStats } = useTerminalDashboard();
@@ -513,7 +516,53 @@ export function SerialTelemetryBridge() {
     };
   }, []);
 
-  // Process incoming serial data for telemetry
+  // Helper to build API URL with simulation params
+  const buildApiUrl = () => {
+    const baseUrl = '/api/telemetry';
+    if (simulationState.isRunning) {
+      const params = new URLSearchParams({
+        environment: simulationState.environment,
+        distance: simulationState.distance.toString(),
+        dataMode: simulationState.dataMode,
+      });
+      return `${baseUrl}?${params.toString()}`;
+    }
+    return baseUrl;
+  };
+
+  // Fetch telemetry data from backend API, with simulation params if running
+  const fetchTelemetryData = async () => {
+    const url = buildApiUrl();
+    try {
+      const response = await fetch(url);
+      if (response.status === 204) {
+        // Simulated packet loss: do not process data
+        console.log('🛑 Packet dropped by channel model (204 No Content)');
+        return;
+      }
+      if (!response.ok) {
+        console.error('Failed to fetch telemetry data:', response.status);
+        return;
+      }
+      const data = await response.json();
+      // You may want to process or forward this data as needed
+      // For now, just log it
+      console.log('Received telemetry data from API:', data);
+      // Optionally, you could update terminalContent or other state here
+    } catch (error) {
+      console.error('Error fetching telemetry data:', error);
+    }
+  };
+
+  // Example: poll backend API every 1s when simulation is running
+  useEffect(() => {
+    if (!simulationState.isRunning) return;
+    const interval = setInterval(fetchTelemetryData, 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulationState.isRunning, simulationState.environment, simulationState.distance, simulationState.dataMode]);
+
+  // Process incoming serial data for telemetry (existing logic)
   useEffect(() => {
     console.log('🔍 SerialTelemetryBridge: checking terminalContent...', {
       hasContent: !!terminalContent,

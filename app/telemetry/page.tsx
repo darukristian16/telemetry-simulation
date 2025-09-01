@@ -14,6 +14,8 @@ import {
 import { useSerialStore } from "@/lib/store";
 import { UnifiedSerialConnection } from "@/components/unified-serial-connection";
 import { CompressionMetricsCard } from "@/components/CompressionMetricsCard";
+import SimulationControlPanel from "@/components/simulation-control-panel";
+import { SimulationLogger } from "@/components/simulation-logger";
 
 // Helper component for input fields
 interface SimulationInputProps {
@@ -210,6 +212,11 @@ export default function TelemetryPage() {
         }}>
           <>
             <ConnectStatusWrapper />
+            {/* Add SimulationControlPanel and TelemetryDashboard at the top, non-intrusive */}
+            <div className="mb-6 space-y-4">
+              <SimulationControlPanel />
+              <SimulationLogger />
+            </div>
             <div className="mt-6">
               {/* Controls Card - Full Width */}
               <div className="rounded-lg bg-gray-800 p-6 shadow-lg">
